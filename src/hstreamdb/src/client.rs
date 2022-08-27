@@ -121,9 +121,9 @@ mod tests {
     use std::env;
 
     use hstreamdb_pb::Stream;
+    use hstreamdb_test_utils::rand_alphanumeric;
 
     use super::Client;
-    use crate::test_utils::rand_alphanumeric;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {

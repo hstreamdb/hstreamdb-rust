@@ -345,6 +345,7 @@ dependencies = [
  "env_logger",
  "flate2",
  "hstreamdb-pb",
+ "hstreamdb-test-utils",
  "log",
  "md-5",
  "num-bigint",
@@ -367,6 +368,16 @@ dependencies = [
  "tonic",
  "tonic-build",
  "workspace-hack",
+]
+
+[[package]]
+name = "hstreamdb-test-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "rand",
 ]
 
 [[package]]
