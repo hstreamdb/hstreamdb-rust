@@ -1,0 +1,3 @@
+[submodule "src/hstreamdb-pb/protocol"]
+	path = src/hstreamdb-pb/protocol
+	url = https://github.com/hstreamdb/protocol.git

@@ -1,0 +1,28 @@
+[package]
+edition = "2021"
+name = "hstreamdb"
+version = "0.1.0"
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
+
+log = "0.4.17"
+
+flate2 = "1.0.24"
+
+num-bigint = "0.4.3"
+num-traits = "0.2.15"
+md-5 = "0.10.1"
+
+hstreamdb-pb = { path = "../hstreamdb-pb/" }
+prost-types = "0.11.1"
+
+prost = "0.11.0"
+tokio = { version = "1.20.1", features = ["rt-multi-thread"] }
+tonic = "0.8.0"
+url = "2.2.2"
+
+[dev-dependencies]
+anyhow = "1.0.62"
+env_logger = "0.9.0"
+rand = "0.8.5"

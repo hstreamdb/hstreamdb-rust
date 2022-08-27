@@ -1,0 +1,2 @@
+[workspace]
+members = ["src/hstreamdb", "src/hstreamdb-pb", "src/utils/workspace-hack"]
