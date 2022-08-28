@@ -10,7 +10,7 @@ use crate::producer::Producer;
 use crate::{common, format_url, producer};
 
 pub struct Client {
-    hstream_api_client: HStreamApiClient<Channel>,
+    pub(crate) hstream_api_client: HStreamApiClient<Channel>,
     url_scheme: String,
     _available_node_addrs: Vec<String>,
 }

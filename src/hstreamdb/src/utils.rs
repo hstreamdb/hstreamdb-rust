@@ -30,7 +30,7 @@ pub async fn lookup_shard(
         .into_inner()
         .server_node
         .ok_or_else(|| {
-            format!("lookup shard error: shard_id = {shard_id}, unwrap `server_node` failed")
+            format!("lookup shard error: shard_id = {shard_id}, failed to unwrap `server_node`")
         })?;
     let server_node = format_url!(url_scheme, server_node.host, server_node.port);
     Ok(server_node)
