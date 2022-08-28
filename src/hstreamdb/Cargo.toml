@@ -19,6 +19,7 @@ prost-types = "0.11.1"
 
 prost = "0.11.0"
 tokio = { version = "1.20.1", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.9"
 tonic = "0.8.0"
 url = "2.2.2"
 

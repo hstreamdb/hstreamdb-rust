@@ -1,6 +1,7 @@
 use std::io;
 
-pub use hstreamdb_pb::Stream;
+use hstreamdb_pb::StreamingFetchRequest;
+pub use hstreamdb_pb::{Stream, Subscription};
 use num_bigint::ParseBigIntError;
 use tonic::transport;
 
@@ -11,6 +12,7 @@ pub enum Error {
     CompressError(io::Error),
     ParseUrlError(url::ParseError),
     PartitionKeyError(PartitionKeyError),
+    StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
 }
 
 #[derive(Debug)]

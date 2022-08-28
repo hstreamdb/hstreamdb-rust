@@ -149,7 +149,7 @@ async fn flush(
             )
             .await
             .map_err(|err| format!("producer append error: addr = {server_node}, {err:?}"))
-            .map(|x| log::debug!("append successed: len = {}", x.len()))?;
+            .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
             Ok(())
         }
     }
