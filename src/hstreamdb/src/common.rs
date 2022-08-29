@@ -13,6 +13,7 @@ pub enum Error {
     ParseUrlError(url::ParseError),
     PartitionKeyError(PartitionKeyError),
     StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
+    PBUnwrapError(String),
 }
 
 #[derive(Debug)]

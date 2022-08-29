@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use flate2::write::GzDecoder;
+use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{
     BatchHStreamRecords, BatchedRecord, HStreamRecord, StreamingFetchRequest,
     StreamingFetchResponse,
@@ -21,6 +22,9 @@ impl Client {
         consumer_name: String,
         subscription_id: String,
     ) -> common::Result<UnboundedReceiverStream<(Payload, AckFn)>> {
+        let channel = self.lookup_subscription(subscription_id.clone()).await?;
+        let mut channel = HStreamApiClient::connect(channel).await?;
+
         let request = StreamingFetchRequest {
             subscription_id: subscription_id.clone(),
             consumer_name: consumer_name.clone(),
@@ -29,8 +33,7 @@ impl Client {
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<StreamingFetchRequest>();
         let request_stream = UnboundedReceiverStream::new(request_receiver);
-        let response = self
-            .hstream_api_client
+        let response = channel
             .streaming_fetch(Request::new(request_stream))
             .await?
             .into_inner();
