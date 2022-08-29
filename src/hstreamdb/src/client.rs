@@ -2,7 +2,7 @@ use common::Stream;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{
     CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, ListStreamsRequest,
-    ListSubscriptionsRequest, NodeState, Subscription,
+    ListSubscriptionsRequest, LookupSubscriptionRequest, NodeState, Subscription,
 };
 use tonic::transport::Channel;
 use tonic::Request;
@@ -109,7 +109,9 @@ impl Client {
         subscription_id: String,
         force: bool,
     ) -> common::Result<()> {
-        self.hstream_api_client
+        let channel = self.lookup_subscription(subscription_id.clone()).await?;
+        let mut channel = HStreamApiClient::connect(channel).await?;
+        channel
             .delete_subscription(DeleteSubscriptionRequest {
                 subscription_id,
                 force,
@@ -149,6 +151,29 @@ impl Client {
         )
         .await?;
         Ok((appender, producer))
+    }
+}
+
+impl Client {
+    pub(crate) async fn lookup_subscription(
+        &mut self,
+        subscription_id: String,
+    ) -> common::Result<String> {
+        let server_node = self
+            .hstream_api_client
+            .lookup_subscription(LookupSubscriptionRequest { subscription_id })
+            .await?
+            .into_inner()
+            .server_node;
+
+        match server_node {
+            None => Err(common::Error::PBUnwrapError("server_node".to_string())),
+            Some(server_node) => Ok(format_url!(
+                self.url_scheme,
+                server_node.host,
+                server_node.port
+            )),
+        }
     }
 }
 
