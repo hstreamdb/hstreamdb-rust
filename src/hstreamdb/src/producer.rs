@@ -247,6 +247,9 @@ fn batch_records(
                 .map_err(common::Error::CompressError)?;
             encoder.finish().map_err(common::Error::CompressError)
         }
+        CompressionType::Zstd => {
+            zstd::encode_all(bytes.as_slice(), 0).map_err(common::Error::CompressError)
+        }
     }?;
     Ok((size as u32, records))
 }

@@ -9,6 +9,7 @@ workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 log = "0.4.17"
 
 flate2 = "1.0.24"
+zstd = "0.11.2"
 
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
