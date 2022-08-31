@@ -172,6 +172,9 @@ fn decode_received_records(
                             decoder.write_all(&payload).map_err(|err| err.to_string())?;
                             decoder.finish().map_err(|err| err.to_string())
                         }
+                        hstreamdb_pb::CompressionType::Zstd => {
+                            zstd::decode_all(payload.as_slice()).map_err(|err| err.to_string())
+                        }
                     }
                 }?;
 
