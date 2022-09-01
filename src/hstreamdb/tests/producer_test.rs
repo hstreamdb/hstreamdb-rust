@@ -50,7 +50,6 @@ async fn test_producer() {
                 )
                 .unwrap();
         }
-        // appender.flush_shards().unwrap();
         drop(appender)
     });
 
