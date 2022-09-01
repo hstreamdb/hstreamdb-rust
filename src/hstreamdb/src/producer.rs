@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::default::default;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::io::Write;
@@ -35,6 +36,7 @@ pub struct Producer {
     shards: Vec<Shard>,
 }
 
+#[derive(Default)]
 struct BufferState {
     len: usize,
     size: usize,
@@ -106,6 +108,7 @@ impl Producer {
                         buffer.push(record);
                         if buffer_state.check(&self.flush_settings) {
                             let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                            self.shard_buffer_state.insert(shard_id, default());
                             let task = tokio::spawn(flush_(
                                 self.channel.clone(),
                                 self.url_scheme.clone(),
