@@ -1,5 +1,6 @@
 #![feature(try_blocks)]
 #![feature(box_syntax)]
+#![feature(default_free_fn)]
 
 pub mod appender;
 pub mod client;

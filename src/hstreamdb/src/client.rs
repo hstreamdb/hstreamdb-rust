@@ -9,7 +9,7 @@ use tonic::Request;
 use url::Url;
 
 use crate::appender::Appender;
-use crate::producer::Producer;
+use crate::producer::{FlushSettings, Producer};
 use crate::{common, format_url, producer};
 
 pub struct Client {
@@ -136,6 +136,7 @@ impl Client {
         &mut self,
         stream_name: String,
         compression_type: CompressionType,
+        flush_settings: FlushSettings,
     ) -> common::Result<(Appender, Producer)> {
         let channel = self.hstream_api_client.clone();
         let (request_sender, request_receiver) =
@@ -148,6 +149,7 @@ impl Client {
             request_receiver,
             stream_name,
             compression_type,
+            flush_settings,
         )
         .await?;
         Ok((appender, producer))
