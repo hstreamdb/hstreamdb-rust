@@ -2,6 +2,7 @@ use std::env;
 
 use hstreamdb::client::Client;
 use hstreamdb::common::Record;
+use hstreamdb::producer::FlushSettings;
 use hstreamdb_pb::Stream;
 use hstreamdb_test_utils::rand_alphanumeric;
 
@@ -23,7 +24,14 @@ async fn test_producer() {
         .await
         .unwrap();
     let (appender, producer) = client
-        .new_producer(stream_name.clone(), hstreamdb_pb::CompressionType::None)
+        .new_producer(
+            stream_name.clone(),
+            hstreamdb_pb::CompressionType::None,
+            FlushSettings {
+                len: 10,
+                size: usize::MAX,
+            },
+        )
         .await
         .unwrap();
 
@@ -42,7 +50,7 @@ async fn test_producer() {
                 )
                 .unwrap();
         }
-        appender.flush_shards().unwrap();
+        // appender.flush_shards().unwrap();
         drop(appender)
     });
 

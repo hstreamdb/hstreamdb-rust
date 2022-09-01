@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Debug, Display};
 use std::io::Write;
+use std::mem;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -13,30 +16,47 @@ use prost::Message;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
-use crate::common::{self, Record, ShardId};
-use crate::utils::{
-    self, clear_buffer, clear_shard_buffer, lookup_shard, partition_key_to_shard_id,
-};
+use crate::common::{self, PartitionKey, Record, ShardId};
+use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
 #[derive(Debug)]
-pub enum Request {
-    Appender {
-        partition_key: String,
-        record: Record,
-    },
-    Flush(ShardId),
-    FlushShards,
-}
+pub(crate) struct Request(pub(crate) PartitionKey, pub(crate) Record);
 
 pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
     shard_buffer: HashMap<ShardId, Vec<Record>>,
+    shard_buffer_state: HashMap<ShardId, BufferState>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
     channel: HStreamApiClient<Channel>,
     url_scheme: String,
     stream_name: String,
     compression_type: CompressionType,
+    flush_settings: FlushSettings,
     shards: Vec<Shard>,
+}
+
+struct BufferState {
+    len: usize,
+    size: usize,
+}
+
+pub struct FlushSettings {
+    pub len: usize,
+    pub size: usize,
+}
+
+impl BufferState {
+    fn modify(&mut self, record: &Record) {
+        self.len += 1;
+        self.size += match &record.payload {
+            common::Payload::HRecord(payload) => payload.encoded_len(),
+            common::Payload::RawRecord(payload) => payload.encoded_len(),
+        };
+    }
+
+    fn check(&self, flush_settings: &FlushSettings) -> bool {
+        (flush_settings.len >= self.len) || (flush_settings.size >= self.size)
+    }
 }
 
 impl Producer {
@@ -46,6 +66,7 @@ impl Producer {
         request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
         stream_name: String,
         compression_type: CompressionType,
+        flush_settings: FlushSettings,
     ) -> common::Result<Self> {
         let shards = channel
             .list_shards(ListShardsRequest {
@@ -57,63 +78,63 @@ impl Producer {
         let producer = Producer {
             tasks: Vec::new(),
             shard_buffer: HashMap::new(),
+            shard_buffer_state: HashMap::new(),
             request_receiver,
             channel,
             url_scheme,
             stream_name,
             compression_type,
+            flush_settings,
             shards,
         };
         Ok(producer)
     }
 
     pub async fn start(&mut self) {
-        while let Some(request) = self.request_receiver.recv().await {
-            match request {
-                Request::Flush(shard_id) => {
-                    let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                    let task = tokio::spawn(flush_(
-                        self.channel.clone(),
-                        self.url_scheme.clone(),
-                        self.stream_name.clone(),
-                        shard_id,
-                        self.compression_type,
-                        buffer,
-                    ));
-                    self.tasks.push(task);
+        while let Some(Request(partition_key, record)) = self.request_receiver.recv().await {
+            match partition_key_to_shard_id(&self.shards, partition_key) {
+                Err(err) => {
+                    log::error!("get shard id by partition key error: {:?}", err)
                 }
-                Request::FlushShards => {
-                    for (shard_id, buffer) in self.shard_buffer.iter_mut() {
-                        let buffer = clear_buffer(buffer);
-                        let task = tokio::spawn(flush_(
-                            self.channel.clone(),
-                            self.url_scheme.clone(),
-                            self.stream_name.clone(),
-                            *shard_id,
-                            self.compression_type,
-                            buffer,
-                        ));
-                        self.tasks.push(task);
+                Ok(shard_id) => match self.shard_buffer.get_mut(&shard_id) {
+                    None => {
+                        self.shard_buffer.insert(shard_id, vec![record]);
                     }
-                }
-                Request::Appender {
-                    partition_key,
-                    record,
-                } => match partition_key_to_shard_id(&self.shards, partition_key) {
-                    Err(err) => {
-                        log::error!("get shard id by partition key error: {:?}", err)
+                    Some(buffer) => {
+                        let buffer_state = self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                        buffer_state.modify(&record);
+                        buffer.push(record);
+                        if buffer_state.check(&self.flush_settings) {
+                            let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                            let task = tokio::spawn(flush_(
+                                self.channel.clone(),
+                                self.url_scheme.clone(),
+                                self.stream_name.clone(),
+                                shard_id,
+                                self.compression_type,
+                                buffer,
+                            ));
+                            self.tasks.push(task);
+                        }
                     }
-                    Ok(shard_id) => match self.shard_buffer.get_mut(&shard_id) {
-                        None => {
-                            self.shard_buffer.insert(shard_id, vec![record]);
-                        }
-                        Some(buffer) => {
-                            buffer.push(record);
-                        }
-                    },
                 },
             }
         }
+
+        let mut shard_buffer = mem::take(&mut self.shard_buffer);
+        _ = mem::take(&mut self.shard_buffer_state);
+        for (shard_id, buffer) in shard_buffer.iter_mut() {
+            let task = tokio::spawn(flush_(
+                self.channel.clone(),
+                self.url_scheme.clone(),
+                self.stream_name.clone(),
+                *shard_id,
+                self.compression_type,
+                mem::take(buffer),
+            ));
+            self.tasks.push(task);
+        }
+
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task.await.unwrap_or_else(|err| {
@@ -206,7 +227,7 @@ async fn append(
     Ok(record_ids)
 }
 
-fn build_header(flag: Flag, partition_key: String) -> HStreamRecordHeader {
+fn build_header(flag: Flag, partition_key: PartitionKey) -> HStreamRecordHeader {
     HStreamRecordHeader {
         flag: flag as i32,
         attributes: HashMap::new(),
@@ -253,3 +274,20 @@ fn batch_records(
     }?;
     Ok((size as u32, records))
 }
+
+#[derive(Debug)]
+pub struct SendError(tokio::sync::mpsc::error::SendError<Request>);
+
+impl From<tokio::sync::mpsc::error::SendError<Request>> for SendError {
+    fn from(err: tokio::sync::mpsc::error::SendError<Request>) -> Self {
+        SendError(err)
+    }
+}
+
+impl Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl Error for SendError {}

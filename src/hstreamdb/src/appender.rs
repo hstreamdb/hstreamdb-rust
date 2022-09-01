@@ -1,6 +1,4 @@
-use tokio::sync::mpsc::error::SendError;
-
-use crate::common::{Record, ShardId};
+use crate::common::{PartitionKey, Record};
 use crate::producer::{self, Request};
 
 #[derive(Clone)]
@@ -15,22 +13,13 @@ impl Appender {
 }
 
 impl Appender {
-    pub fn flush_shards(&self) -> Result<(), SendError<producer::Request>> {
-        self.request_sender.send(Request::FlushShards)
-    }
-
-    pub fn flush(&self, shard_id: ShardId) -> Result<(), SendError<producer::Request>> {
-        self.request_sender.send(Request::Flush(shard_id))
-    }
-
     pub fn append(
         &mut self,
-        partition_key: String,
+        partition_key: PartitionKey,
         record: Record,
-    ) -> Result<(), SendError<producer::Request>> {
-        self.request_sender.send(Request::Appender {
-            partition_key,
-            record,
-        })
+    ) -> Result<(), producer::SendError> {
+        self.request_sender
+            .send(Request(partition_key, record))
+            .map_err(Into::into)
     }
 }

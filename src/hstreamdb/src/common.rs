@@ -44,7 +44,7 @@ pub type Result<A> = std::result::Result<A, Error>;
 
 #[derive(Debug, Clone)]
 pub struct Record {
-    pub partition_key: String,
+    pub partition_key: PartitionKey,
     pub payload: Payload,
 }
 
@@ -55,3 +55,4 @@ pub enum Payload {
 }
 
 pub(crate) type ShardId = u64;
+pub type PartitionKey = String;

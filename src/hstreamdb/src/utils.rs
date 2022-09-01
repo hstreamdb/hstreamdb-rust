@@ -8,7 +8,7 @@ use num_bigint::BigInt;
 use num_traits::Num;
 use tonic::transport::Channel;
 
-use crate::common::{self, Record, ShardId};
+use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::format_url;
 
 pub fn record_id_to_string(record_id: &RecordId) -> String {
@@ -52,7 +52,7 @@ pub fn clear_buffer(buffer: &mut Vec<Record>) -> Vec<Record> {
 
 pub fn partition_key_to_shard_id(
     shards: &[Shard],
-    partition_key: String,
+    partition_key: PartitionKey,
 ) -> common::Result<ShardId> {
     let hash = {
         let mut hasher = Md5::new();
