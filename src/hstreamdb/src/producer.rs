@@ -100,6 +100,9 @@ impl Producer {
                 }
                 Ok(shard_id) => match self.shard_buffer.get_mut(&shard_id) {
                     None => {
+                        let mut buffer_state: BufferState = default();
+                        buffer_state.modify(&record);
+                        self.shard_buffer_state.insert(shard_id, buffer_state);
                         self.shard_buffer.insert(shard_id, vec![record]);
                     }
                     Some(buffer) => {
@@ -125,7 +128,6 @@ impl Producer {
         }
 
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
-        _ = mem::take(&mut self.shard_buffer_state);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
             let task = tokio::spawn(flush_(
                 self.channel.clone(),
