@@ -1,8 +1,8 @@
-use common::Stream;
+use common::{Stream, Subscription};
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{
     CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, ListStreamsRequest,
-    ListSubscriptionsRequest, LookupSubscriptionRequest, NodeState, Subscription,
+    ListSubscriptionsRequest, LookupSubscriptionRequest, NodeState,
 };
 use tonic::transport::Channel;
 use tonic::Request;
@@ -98,6 +98,7 @@ impl Client {
 
 impl Client {
     pub async fn create_subscription(&mut self, subscription: Subscription) -> common::Result<()> {
+        let subscription: hstreamdb_pb::Subscription = subscription.into();
         self.hstream_api_client
             .create_subscription(subscription)
             .await?;
@@ -126,7 +127,10 @@ impl Client {
             .list_subscriptions(ListSubscriptionsRequest {})
             .await?
             .into_inner()
-            .subscription;
+            .subscription
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
         Ok(subscriptions)
     }
 }
@@ -183,10 +187,11 @@ impl Client {
 mod tests {
     use std::env;
 
-    use hstreamdb_pb::{SpecialOffset, Stream, Subscription};
+    use hstreamdb_pb::{SpecialOffset, Stream};
     use hstreamdb_test_utils::rand_alphanumeric;
 
     use super::Client;
+    use crate::Subscription;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {
@@ -249,7 +254,7 @@ mod tests {
             stream_name,
             ack_timeout_seconds: 60 * 10,
             max_unacked_records: 1000,
-            offset: SpecialOffset::Earliest as i32,
+            offset: SpecialOffset::Earliest,
         };
         for stream in streams.iter() {
             let subscription_ids = (0..5)

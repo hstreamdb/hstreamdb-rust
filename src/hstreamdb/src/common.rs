@@ -1,9 +1,42 @@
 use std::io;
 
 use hstreamdb_pb::StreamingFetchRequest;
-pub use hstreamdb_pb::{Stream, Subscription};
+pub use hstreamdb_pb::{SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
 use tonic::transport;
+
+pub struct Subscription {
+    pub subscription_id: String,
+    pub stream_name: String,
+    pub ack_timeout_seconds: i32,
+    pub max_unacked_records: i32,
+    pub offset: SpecialOffset,
+}
+
+impl From<Subscription> for hstreamdb_pb::Subscription {
+    fn from(subscription: Subscription) -> Self {
+        hstreamdb_pb::Subscription {
+            subscription_id: subscription.subscription_id,
+            stream_name: subscription.stream_name,
+            ack_timeout_seconds: subscription.ack_timeout_seconds,
+            max_unacked_records: subscription.max_unacked_records,
+            offset: subscription.offset as _,
+        }
+    }
+}
+
+impl From<hstreamdb_pb::Subscription> for Subscription {
+    fn from(subscription: hstreamdb_pb::Subscription) -> Self {
+        let offset = subscription.offset();
+        Subscription {
+            subscription_id: subscription.subscription_id,
+            stream_name: subscription.stream_name,
+            ack_timeout_seconds: subscription.ack_timeout_seconds,
+            max_unacked_records: subscription.max_unacked_records,
+            offset,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum Error {

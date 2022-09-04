@@ -57,7 +57,7 @@ impl BufferState {
     }
 
     fn check(&self, flush_settings: &FlushSettings) -> bool {
-        (flush_settings.len >= self.len) || (flush_settings.size >= self.size)
+        (self.len >= flush_settings.len) || (self.size >= flush_settings.size)
     }
 }
 
@@ -157,27 +157,33 @@ async fn flush(
     compression_type: CompressionType,
     buffer: Vec<Record>,
 ) -> Result<(), String> {
-    match lookup_shard(&mut channel, &url_scheme, shard_id).await {
-        Err(err) => {
-            log::warn!("{err}");
-            Ok(())
-        }
-        Ok(server_node) => {
-            let channel = HStreamApiClient::connect(server_node.clone())
+    if !buffer.is_empty() {
+        match lookup_shard(&mut channel, &url_scheme, shard_id).await {
+            Err(err) => {
+                log::warn!("{err}");
+                Ok(())
+            }
+            Ok(server_node) => {
+                let channel = HStreamApiClient::connect(server_node.clone())
+                    .await
+                    .map_err(|err| {
+                        format!("producer connect error: addr = {server_node}, {err}")
+                    })?;
+                append(
+                    channel,
+                    stream_name,
+                    shard_id,
+                    compression_type,
+                    buffer.to_vec(),
+                )
                 .await
-                .map_err(|err| format!("producer connect error: addr = {server_node}, {err}"))?;
-            append(
-                channel,
-                stream_name,
-                shard_id,
-                compression_type,
-                buffer.to_vec(),
-            )
-            .await
-            .map_err(|err| format!("producer append error: addr = {server_node}, {err:?}"))
-            .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
-            Ok(())
+                .map_err(|err| format!("producer append error: addr = {server_node}, {err:?}"))
+                .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
+                Ok(())
+            }
         }
+    } else {
+        Ok(())
     }
 }
 
