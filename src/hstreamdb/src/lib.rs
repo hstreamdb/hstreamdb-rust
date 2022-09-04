@@ -3,6 +3,7 @@
 #![feature(default_free_fn)]
 
 pub mod appender;
+mod channel_provider;
 pub mod client;
 pub mod common;
 pub mod consumer;

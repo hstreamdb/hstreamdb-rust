@@ -17,6 +17,7 @@ use prost::Message;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
+use crate::channel_provider::Channels;
 use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
@@ -28,7 +29,7 @@ pub struct Producer {
     shard_buffer: HashMap<ShardId, Vec<Record>>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
-    channel: HStreamApiClient<Channel>,
+    channels: Channels,
     url_scheme: String,
     stream_name: String,
     compression_type: CompressionType,
@@ -82,7 +83,7 @@ impl Producer {
             shard_buffer: HashMap::new(),
             shard_buffer_state: HashMap::new(),
             request_receiver,
-            channel,
+            channels: todo!(),
             url_scheme,
             stream_name,
             compression_type,
@@ -113,7 +114,7 @@ impl Producer {
                             let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
                             self.shard_buffer_state.insert(shard_id, default());
                             let task = tokio::spawn(flush_(
-                                self.channel.clone(),
+                                self.channels.channel().await,
                                 self.url_scheme.clone(),
                                 self.stream_name.clone(),
                                 shard_id,
@@ -130,7 +131,7 @@ impl Producer {
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
             let task = tokio::spawn(flush_(
-                self.channel.clone(),
+                self.channels.channel().await,
                 self.url_scheme.clone(),
                 self.stream_name.clone(),
                 *shard_id,
