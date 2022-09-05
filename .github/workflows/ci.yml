@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, ci]
+  pull_request:
+    branches: [main, dev, ci]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "recursive"
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          components: rustfmt, clippy
+      - run: cargo install --force cargo-hakari
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo hakari verify
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "recursive"
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+      - run: cargo test --workspace --no-fail-fast --all-features --locked
+      - run: cargo test --doc --workspace --no-fail-fast --all-features --locked
