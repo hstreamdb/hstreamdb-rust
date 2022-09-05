@@ -43,7 +43,7 @@ impl Client {
 
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(Payload, AckFn)>();
 
-        let _ = tokio::spawn(fetching(
+        _ = tokio::spawn(fetching(
             consumer_name,
             subscription_id,
             request_sender,

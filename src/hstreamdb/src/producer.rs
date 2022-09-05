@@ -14,11 +14,10 @@ use hstreamdb_pb::{
     HStreamRecordHeader, ListShardsRequest, Shard,
 };
 use prost::Message;
-use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
-use crate::channel_provider::{ChannelProvider, Channels};
+use crate::channel_provider::Channels;
 use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
@@ -65,30 +64,22 @@ impl BufferState {
 
 impl Producer {
     pub(crate) async fn new(
-        mut channel: HStreamApiClient<Channel>,
+        channels: Channels,
         url_scheme: String,
         request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
         stream_name: String,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
     ) -> common::Result<Self> {
-        let shards = channel
+        let shards = channels
+            .channel()
+            .await
             .list_shards(ListShardsRequest {
                 stream_name: stream_name.clone(),
             })
             .await?
             .into_inner()
             .shards;
-        let (channel_provider_request_sender, channel_provider_request_receiver) =
-            unbounded_channel();
-        let channels =
-            ChannelProvider::new(&mut channel, &url_scheme, channel_provider_request_receiver)
-                .await?;
-        _ = tokio::spawn(async move {
-            let mut channels = channels;
-            channels.start().await
-        });
-        let channels = Channels::new(channel_provider_request_sender);
         let producer = Producer {
             tasks: Vec::new(),
             shard_buffer: HashMap::new(),
