@@ -285,29 +285,34 @@ mod tests {
                     .await
                     .unwrap()
             }
-            let subscriptions = client
-                .list_subscriptions()
-                .await
-                .unwrap()
-                .into_iter()
-                .map(|x| x.subscription_id)
-                .collect::<Vec<_>>();
             for subscription_id in subscription_ids.iter() {
-                assert!(subscriptions.contains(subscription_id));
+                assert!(
+                    client
+                        .list_subscriptions()
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|x| x.subscription_id)
+                        .any(|x| x == *subscription_id)
+                );
+            }
+            for subscription_id in subscription_ids.iter() {
                 client
                     .delete_subscription(subscription_id.clone(), true)
                     .await
                     .unwrap();
             }
-            let subscriptions = client
-                .list_subscriptions()
-                .await
-                .unwrap()
-                .into_iter()
-                .map(|x| x.subscription_id)
-                .collect::<Vec<_>>();
+
             for subscription_id in subscription_ids.iter() {
-                assert!(!subscriptions.contains(subscription_id));
+                assert!(
+                    !client
+                        .list_subscriptions()
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|x| x.subscription_id)
+                        .any(|x| x == *subscription_id)
+                );
             }
         }
 
