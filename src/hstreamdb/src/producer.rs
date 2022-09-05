@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::default::default;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -27,7 +27,6 @@ pub(crate) struct Request(pub(crate) PartitionKey, pub(crate) Record);
 
 pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
-    resources: VecDeque<JoinHandle<()>>,
     shard_buffer: HashMap<ShardId, Vec<Record>>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
@@ -85,14 +84,13 @@ impl Producer {
         let channels =
             ChannelProvider::new(&mut channel, &url_scheme, channel_provider_request_receiver)
                 .await?;
-        let channels_join_handle = tokio::spawn(async move {
+        _ = tokio::spawn(async move {
             let mut channels = channels;
             channels.start().await
         });
         let channels = Channels::new(channel_provider_request_sender);
         let producer = Producer {
             tasks: Vec::new(),
-            resources: VecDeque::from([channels_join_handle]),
             shard_buffer: HashMap::new(),
             shard_buffer_state: HashMap::new(),
             request_receiver,
@@ -159,10 +157,6 @@ impl Producer {
             task.await.unwrap_or_else(|err| {
                 log::error!("await for task in stopping producer failed: {err}")
             })
-        }
-
-        while let Some(resource) = self.resources.pop_back() {
-            resource.abort()
         }
     }
 }
