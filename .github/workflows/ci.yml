@@ -34,5 +34,60 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
+      - run: |
+          #!/bin/sh
+          set -e
+
+          ZOOKEEPER_IMAGE='zookeeper:3.6'
+          HSTREAM_IMAGE='hstreamdb/hstream:latest'
+
+          DATA_STORE='/tmp/hstream/data'
+
+          mkdir -p $DATA_STORE
+
+          docker pull $HSTREAM_IMAGE
+
+          docker run -td --network host \
+            --rm                        \
+            --name hs-test-zk           \
+              $ZOOKEEPER_IMAGE
+
+          sleep 5
+
+          docker run -td --network host    \
+            --rm                           \
+            --name hs-test-hstore          \
+            -v     $DATA_STORE:/data/store \
+              $HSTREAM_IMAGE               \
+                ld-dev-cluster             \
+                  --root /data/store       \
+                  --use-tcp
+
+          sleep 5
+
+          docker run -td --network host                                        \
+            --name hs-test-hserver0                                            \
+            -v     $DATA_STORE:/data/store                                     \
+              $HSTREAM_IMAGE                                                   \
+                hstream-server                                                 \
+                  --store-config /data/store/logdevice.conf --log-level debug  \
+                  --port 6570 --server-id 0
+
+          docker run -td --network host                                        \
+            --name hs-test-hserver1                                            \
+            -v     $DATA_STORE:/data/store                                     \
+              $HSTREAM_IMAGE                                                   \
+                hstream-server                                                 \
+                  --store-config /data/store/logdevice.conf --log-level debug  \
+                  --port 6571 --server-id 1
+
+          docker run -td --network host                                        \
+            --name hs-test-hserver2                                            \
+            -v     $DATA_STORE:/data/store                                     \
+              $HSTREAM_IMAGE                                                   \
+                hstream-server                                                 \
+                  --store-config /data/store/logdevice.conf --log-level debug  \
+                  --port 6572 --server-id 2
+
       - run: cargo test --workspace --no-fail-fast --all-features --locked
       - run: cargo test --doc --workspace --no-fail-fast --all-features --locked
