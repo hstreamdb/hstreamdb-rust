@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tonic::transport::Channel;
@@ -18,6 +18,21 @@ pub(crate) struct Request(
 pub(crate) struct ChannelProvider {
     request_receiver: UnboundedReceiver<Request>,
     channels: HashMap<String, HStreamApiClient<Channel>>,
+}
+
+pub(crate) async fn new_channel_provider(
+    url_scheme: &str,
+    channel: &mut HStreamApiClient<Channel>,
+) -> common::Result<Channels> {
+    let (channel_provider_request_sender, channel_provider_request_receiver) = unbounded_channel();
+    let channels =
+        ChannelProvider::new(channel, url_scheme, channel_provider_request_receiver).await?;
+    _ = tokio::spawn(async move {
+        let mut channels = channels;
+        channels.start().await
+    });
+    let channels = Channels::new(channel_provider_request_sender);
+    Ok(channels)
 }
 
 #[derive(Clone)]

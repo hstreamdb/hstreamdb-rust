@@ -9,13 +9,13 @@ use tonic::Request;
 use url::Url;
 
 use crate::appender::Appender;
+use crate::channel_provider::{new_channel_provider, Channels};
 use crate::producer::{FlushSettings, Producer};
 use crate::{common, format_url, producer};
 
 pub struct Client {
-    pub(crate) hstream_api_client: HStreamApiClient<Channel>,
+    pub(crate) channels: Channels,
     url_scheme: String,
-    _available_node_addrs: Vec<String>,
 }
 
 impl Client {
@@ -26,13 +26,18 @@ impl Client {
         let server_url = server_url.into();
         let url = Url::parse(&server_url)?;
         let mut hstream_api_client = HStreamApiClient::connect(server_url).await?;
-        let _available_node_addrs =
-            get_available_node_addrs(&mut hstream_api_client, url.scheme()).await?;
+        let url_scheme = url.scheme().to_string();
+        let channels = new_channel_provider(&url_scheme, &mut hstream_api_client).await?;
         Ok(Client {
-            hstream_api_client,
-            url_scheme: url.scheme().to_string(),
-            _available_node_addrs,
+            channels,
+            url_scheme,
         })
+    }
+}
+
+impl Client {
+    async fn new_channel_provider(&self) -> common::Result<Channels> {
+        new_channel_provider(&self.url_scheme, &mut self.channels.channel().await).await
     }
 }
 
@@ -64,7 +69,7 @@ impl Client {
 
 impl Client {
     pub async fn create_stream(&mut self, stream: Stream) -> common::Result<()> {
-        self.hstream_api_client.create_stream(stream).await?;
+        self.channels.channel().await.create_stream(stream).await?;
         Ok(())
     }
 
@@ -79,7 +84,9 @@ impl Client {
             ignore_non_exist,
             force,
         };
-        self.hstream_api_client
+        self.channels
+            .channel()
+            .await
             .delete_stream(delete_stream_request)
             .await?;
         Ok(())
@@ -87,7 +94,9 @@ impl Client {
 
     pub async fn list_streams(&mut self) -> common::Result<Vec<Stream>> {
         let streams = self
-            .hstream_api_client
+            .channels
+            .channel()
+            .await
             .list_streams(ListStreamsRequest {})
             .await?
             .into_inner()
@@ -99,7 +108,9 @@ impl Client {
 impl Client {
     pub async fn create_subscription(&mut self, subscription: Subscription) -> common::Result<()> {
         let subscription: hstreamdb_pb::Subscription = subscription.into();
-        self.hstream_api_client
+        self.channels
+            .channel()
+            .await
             .create_subscription(subscription)
             .await?;
         Ok(())
@@ -110,8 +121,8 @@ impl Client {
         subscription_id: String,
         force: bool,
     ) -> common::Result<()> {
-        let channel = self.lookup_subscription(subscription_id.clone()).await?;
-        let mut channel = HStreamApiClient::connect(channel).await?;
+        let url = self.lookup_subscription(subscription_id.clone()).await?;
+        let mut channel = self.channels.channel_at(url).await?;
         channel
             .delete_subscription(DeleteSubscriptionRequest {
                 subscription_id,
@@ -123,7 +134,9 @@ impl Client {
 
     pub async fn list_subscriptions(&mut self) -> common::Result<Vec<Subscription>> {
         let subscriptions = self
-            .hstream_api_client
+            .channels
+            .channel()
+            .await
             .list_subscriptions(ListSubscriptionsRequest {})
             .await?
             .into_inner()
@@ -142,13 +155,14 @@ impl Client {
         compression_type: CompressionType,
         flush_settings: FlushSettings,
     ) -> common::Result<(Appender, Producer)> {
-        let channel = self.hstream_api_client.clone();
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<producer::Request>();
 
+        let channels = self.new_channel_provider().await?;
+
         let appender = Appender::new(request_sender.clone());
         let producer = Producer::new(
-            channel,
+            channels,
             self.url_scheme.clone(),
             request_receiver,
             stream_name,
@@ -166,7 +180,9 @@ impl Client {
         subscription_id: String,
     ) -> common::Result<String> {
         let server_node = self
-            .hstream_api_client
+            .channels
+            .channel()
+            .await
             .lookup_subscription(LookupSubscriptionRequest { subscription_id })
             .await?
             .into_inner()
