@@ -36,7 +36,7 @@ impl Client {
     }
 }
 
-async fn get_available_node_addrs(
+pub(crate) async fn get_available_node_addrs(
     client: &mut HStreamApiClient<Channel>,
     url_scheme: &str,
 ) -> common::Result<Vec<String>> {

@@ -22,7 +22,7 @@ prost-types = { version = "0.11", features = ["std"] }
 rand = { version = "0.8", features = ["alloc", "getrandom", "libc", "rand_chacha", "small_rng", "std", "std_rng"] }
 regex = { version = "1", default-features = false, features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode-bool"] }
 regex-syntax = { version = "0.6", default-features = false, features = ["unicode-bool"] }
-tokio = { version = "1", features = ["bytes", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "rt", "rt-multi-thread", "socket2", "sync", "time", "tokio-macros"] }
+tokio = { version = "1", features = ["bytes", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "rt", "rt-multi-thread", "sync", "time", "tokio-macros"] }
 
 [build-dependencies]
 bytes = { version = "1", features = ["std"] }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::default::default;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -14,10 +14,11 @@ use hstreamdb_pb::{
     HStreamRecordHeader, ListShardsRequest, Shard,
 };
 use prost::Message;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
-use crate::channel_provider::Channels;
+use crate::channel_provider::{ChannelProvider, Channels};
 use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
@@ -26,6 +27,7 @@ pub(crate) struct Request(pub(crate) PartitionKey, pub(crate) Record);
 
 pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
+    resources: VecDeque<JoinHandle<()>>,
     shard_buffer: HashMap<ShardId, Vec<Record>>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
@@ -78,12 +80,23 @@ impl Producer {
             .await?
             .into_inner()
             .shards;
+        let (channel_provider_request_sender, channel_provider_request_receiver) =
+            unbounded_channel();
+        let channels =
+            ChannelProvider::new(&mut channel, &url_scheme, channel_provider_request_receiver)
+                .await?;
+        let channels_join_handle = tokio::spawn(async move {
+            let mut channels = channels;
+            channels.start().await
+        });
+        let channels = Channels::new(channel_provider_request_sender);
         let producer = Producer {
             tasks: Vec::new(),
+            resources: VecDeque::from([channels_join_handle]),
             shard_buffer: HashMap::new(),
             shard_buffer_state: HashMap::new(),
             request_receiver,
-            channels: todo!(),
+            channels,
             url_scheme,
             stream_name,
             compression_type,
@@ -114,7 +127,7 @@ impl Producer {
                             let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
                             self.shard_buffer_state.insert(shard_id, default());
                             let task = tokio::spawn(flush_(
-                                self.channels.channel().await,
+                                self.channels.clone(),
                                 self.url_scheme.clone(),
                                 self.stream_name.clone(),
                                 shard_id,
@@ -131,7 +144,7 @@ impl Producer {
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
             let task = tokio::spawn(flush_(
-                self.channels.channel().await,
+                self.channels.clone(),
                 self.url_scheme.clone(),
                 self.stream_name.clone(),
                 *shard_id,
@@ -147,11 +160,15 @@ impl Producer {
                 log::error!("await for task in stopping producer failed: {err}")
             })
         }
+
+        while let Some(resource) = self.resources.pop_back() {
+            resource.abort()
+        }
     }
 }
 
 async fn flush(
-    mut channel: HStreamApiClient<Channel>,
+    channels: Channels,
     url_scheme: String,
     stream_name: String,
     shard_id: ShardId,
@@ -159,16 +176,17 @@ async fn flush(
     buffer: Vec<Record>,
 ) -> Result<(), String> {
     if !buffer.is_empty() {
-        match lookup_shard(&mut channel, &url_scheme, shard_id).await {
+        match lookup_shard(&mut channels.channel().await, &url_scheme, shard_id).await {
             Err(err) => {
                 log::warn!("{err}");
                 Ok(())
             }
             Ok(server_node) => {
-                let channel = HStreamApiClient::connect(server_node.clone())
+                let channel = channels
+                    .channel_at(server_node.clone())
                     .await
                     .map_err(|err| {
-                        format!("producer connect error: addr = {server_node}, {err}")
+                        format!("producer connect error: url = {server_node}, {err:?}")
                     })?;
                 append(
                     channel,
@@ -189,7 +207,7 @@ async fn flush(
 }
 
 async fn flush_(
-    channel: HStreamApiClient<Channel>,
+    channels: Channels,
     url_scheme: String,
     stream_name: String,
     shard_id: ShardId,
@@ -197,7 +215,7 @@ async fn flush_(
     buffer: Vec<Record>,
 ) {
     flush(
-        channel,
+        channels,
         url_scheme,
         stream_name,
         shard_id,

@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 use tonic::transport::Channel;
 
+use crate::client::get_available_node_addrs;
 use crate::common;
 
 #[derive(Debug)]
@@ -18,6 +20,7 @@ pub(crate) struct ChannelProvider {
     channels: HashMap<String, HStreamApiClient<Channel>>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Channels(UnboundedSender<Request>);
 
 impl Channels {
@@ -37,16 +40,53 @@ impl Channels {
         self.0.send(request).unwrap();
         receiver.await.unwrap()
     }
+
+    pub(crate) fn new(sender: UnboundedSender<Request>) -> Self {
+        Channels(sender)
+    }
 }
 
 impl ChannelProvider {
-    pub(crate) fn new(
+    pub(crate) async fn new(
+        channel: &mut HStreamApiClient<Channel>,
+        url_scheme: &str,
         request_receiver: UnboundedReceiver<Request>,
-        channels: HashMap<String, HStreamApiClient<Channel>>,
-    ) -> Self {
-        ChannelProvider {
-            request_receiver,
-            channels,
+    ) -> common::Result<Self> {
+        let channels = get_available_node_addrs(channel, url_scheme)
+            .await?
+            .into_iter()
+            .map(|addr| async move { (addr.clone(), HStreamApiClient::connect(addr).await) })
+            .collect::<Vec<_>>();
+        let mut join_set = JoinSet::new();
+        for channel in channels {
+            join_set.spawn(channel);
+        }
+        let mut channels = HashMap::new();
+        while let Some(channel) = join_set.join_next().await {
+            match channel {
+                Ok(channel) => {
+                    let url = channel.0;
+                    match channel.1 {
+                        Ok(channel) => {
+                            channels.insert(url, channel);
+                        }
+                        Err(err) => {
+                            log::warn!("connect error: url = {url}, {err}")
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::warn!("connect error: {err}")
+                }
+            }
+        }
+        if channels.is_empty() {
+            Err(common::Error::NoAvailableChannel)
+        } else {
+            Ok(ChannelProvider {
+                request_receiver,
+                channels,
+            })
         }
     }
 

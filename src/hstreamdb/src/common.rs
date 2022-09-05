@@ -47,6 +47,7 @@ pub enum Error {
     PartitionKeyError(PartitionKeyError),
     StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
     PBUnwrapError(String),
+    NoAvailableChannel,
 }
 
 #[derive(Debug)]
