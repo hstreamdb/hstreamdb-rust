@@ -80,4 +80,4 @@ pub mod consumer;
 pub mod producer;
 pub mod utils;
 
-pub use common::{Error, Payload, Record, Result, Stream, Subscription};
+pub use common::{CompressionType, Error, Payload, Record, Result, Stream, Subscription};
