@@ -1,4 +1,4 @@
-use crate::common::{PartitionKey, Record};
+use crate::common::Record;
 use crate::producer::{self, Request};
 
 #[derive(Clone)]
@@ -13,13 +13,9 @@ impl Appender {
 }
 
 impl Appender {
-    pub fn append(
-        &mut self,
-        partition_key: PartitionKey,
-        record: Record,
-    ) -> Result<(), producer::SendError> {
+    pub fn append(&mut self, record: Record) -> Result<(), producer::SendError> {
         self.request_sender
-            .send(Request(partition_key, record))
+            .send(Request(record))
             .map_err(Into::into)
     }
 }

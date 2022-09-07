@@ -6,6 +6,7 @@ version = "0.1.0"
 [dependencies]
 workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 
+thiserror = "1.0.34"
 log = "0.4.17"
 
 flate2 = "1.0.24"
