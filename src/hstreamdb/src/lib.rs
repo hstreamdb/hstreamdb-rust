@@ -27,7 +27,7 @@
 //!         .await?;
 //!     println!("{:?}", client.list_streams().await?);
 //!
-//!     /// [Appender](crate::appender::Appender) is cheap to clone
+//!     // `Appender` is cheap to clone
 //!     let (appender, mut producer) = client
 //!         .new_producer(
 //!             stream_name.to_string(),
@@ -62,9 +62,8 @@
 //!         drop(appender)
 //!     });
 //!
-//!     /// when all [Appender](crate::appender::Appender)s for the corresponding
-//!     /// [Producer](crate::producer::Producer) have been dropped, the
-//!     /// [Producer](crate::producer::Producer) will wait for all requests to be done
+//!     // when all `Appender`s for the corresponding `Producer` have been dropped,
+//!     // the `Producer` will wait for all requests to be done and then stop
 //!     producer.start().await;
 //!
 //!     Ok(())
@@ -84,6 +83,3 @@ pub mod producer;
 pub mod utils;
 
 pub use common::{Error, Payload, Record, Result, Stream, Subscription};
-
-#[cfg(test)]
-mod producer_example {}
