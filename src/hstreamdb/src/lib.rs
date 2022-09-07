@@ -4,13 +4,11 @@
 //! ```
 //! use std::env;
 //!
-//! use hstreamdb_pb::Stream;
+//! use hstreamdb::client::Client;
+//! use hstreamdb::producer::FlushSettings;
+//! use hstreamdb::{CompressionType, Payload, Record, Stream};
 //! use rand::distributions::Alphanumeric;
 //! use rand::{thread_rng, Rng};
-//!
-//! use crate::client::Client;
-//! use crate::producer::FlushSettings;
-//! use crate::{Payload, Record};
 //!
 //! async fn produce_example() -> anyhow::Result<()> {
 //!     let mut client = Client::new(env::var("TEST_SERVER_ADDR")?).await?;
