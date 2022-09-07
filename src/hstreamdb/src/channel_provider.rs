@@ -96,7 +96,7 @@ impl ChannelProvider {
             }
         }
         if channels.is_empty() {
-            Err(common::Error::NoAvailableChannel)
+            Err(common::Error::NoChannelAvailable)
         } else {
             Ok(ChannelProvider {
                 request_receiver,

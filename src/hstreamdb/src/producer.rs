@@ -22,7 +22,7 @@ use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
 #[derive(Debug)]
-pub(crate) struct Request(pub(crate) PartitionKey, pub(crate) Record);
+pub(crate) struct Request(pub(crate) Record);
 
 pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
@@ -96,7 +96,8 @@ impl Producer {
     }
 
     pub async fn start(&mut self) {
-        while let Some(Request(partition_key, record)) = self.request_receiver.recv().await {
+        while let Some(Request(record)) = self.request_receiver.recv().await {
+            let partition_key = record.partition_key.clone();
             match partition_key_to_shard_id(&self.shards, partition_key) {
                 Err(err) => {
                     log::error!("get shard id by partition key error: {:?}", err)

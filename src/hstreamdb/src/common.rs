@@ -1,7 +1,7 @@
 use std::io;
 
 use hstreamdb_pb::StreamingFetchRequest;
-pub use hstreamdb_pb::{SpecialOffset, Stream};
+pub use hstreamdb_pb::{CompressionType, SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
 use tonic::transport;
 
@@ -38,21 +38,31 @@ impl From<hstreamdb_pb::Subscription> for Subscription {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
     TransportError(transport::Error),
+    #[error(transparent)]
     GrpcStatusError(tonic::Status),
+    #[error(transparent)]
     CompressError(io::Error),
+    #[error(transparent)]
     ParseUrlError(url::ParseError),
+    #[error(transparent)]
     PartitionKeyError(PartitionKeyError),
+    #[error(transparent)]
     StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
+    #[error("failed to unwrap `{0}`")]
     PBUnwrapError(String),
-    NoAvailableChannel,
+    #[error("No channel is available")]
+    NoChannelAvailable,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PartitionKeyError {
+    #[error(transparent)]
     ParseBigIntError(ParseBigIntError),
+    #[error("No match for the partition key")]
     NoMatch,
 }
 

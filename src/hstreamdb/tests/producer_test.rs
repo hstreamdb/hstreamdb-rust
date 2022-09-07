@@ -39,15 +39,12 @@ async fn test_producer() {
         let mut appender = appender;
         for _ in 0..100 {
             appender
-                .append(
-                    "".to_string(),
-                    Record {
-                        partition_key: "".to_string(),
-                        payload: hstreamdb::common::Payload::RawRecord(
-                            rand_alphanumeric(20).as_bytes().to_vec(),
-                        ),
-                    },
-                )
+                .append(Record {
+                    partition_key: "".to_string(),
+                    payload: hstreamdb::common::Payload::RawRecord(
+                        rand_alphanumeric(20).as_bytes().to_vec(),
+                    ),
+                })
                 .unwrap();
         }
         drop(appender)
