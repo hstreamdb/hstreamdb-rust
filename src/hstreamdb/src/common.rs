@@ -98,5 +98,17 @@ pub enum Payload {
     RawRecord(Vec<u8>),
 }
 
+impl From<Vec<u8>> for Payload {
+    fn from(payload: Vec<u8>) -> Self {
+        Self::RawRecord(payload)
+    }
+}
+
+impl From<prost_types::Struct> for Payload {
+    fn from(payload: prost_types::Struct) -> Self {
+        Self::HRecord(payload)
+    }
+}
+
 pub(crate) type ShardId = u64;
 pub type PartitionKey = String;

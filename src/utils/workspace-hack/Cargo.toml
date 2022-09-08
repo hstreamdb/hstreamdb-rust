@@ -20,8 +20,8 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 prost = { version = "0.11", features = ["prost-derive", "std"] }
 prost-types = { version = "0.11", features = ["std"] }
 rand = { version = "0.8", features = ["alloc", "getrandom", "libc", "rand_chacha", "small_rng", "std", "std_rng"] }
-regex = { version = "1", default-features = false, features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode-bool"] }
-regex-syntax = { version = "0.6", default-features = false, features = ["unicode-bool"] }
+regex = { version = "1", features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
+regex-syntax = { version = "0.6", features = ["unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
 tokio = { version = "1", features = ["bytes", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "rt", "rt-multi-thread", "sync", "time", "tokio-macros"] }
 
 [build-dependencies]
@@ -31,8 +31,8 @@ indexmap = { version = "1", default-features = false, features = ["std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 prost = { version = "0.11", features = ["prost-derive", "std"] }
 prost-types = { version = "0.11", features = ["std"] }
-regex = { version = "1", default-features = false, features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode-bool"] }
-regex-syntax = { version = "0.6", default-features = false, features = ["unicode-bool"] }
+regex = { version = "1", features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
+regex-syntax = { version = "0.6", features = ["unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
 syn = { version = "1", features = ["clone-impls", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit", "visit-mut"] }
 
 ### END HAKARI SECTION
