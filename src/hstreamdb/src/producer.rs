@@ -28,6 +28,7 @@ pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
     shard_buffer: HashMap<ShardId, Vec<Record>>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
+    shard_urls: HashMap<ShardId, String>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
     channels: Channels,
     url_scheme: String,
@@ -84,6 +85,7 @@ impl Producer {
             tasks: Vec::new(),
             shard_buffer: HashMap::new(),
             shard_buffer_state: HashMap::new(),
+            shard_urls: HashMap::new(),
             request_receiver,
             channels,
             url_scheme,
@@ -98,50 +100,94 @@ impl Producer {
     pub async fn start(&mut self) {
         while let Some(Request(record)) = self.request_receiver.recv().await {
             let partition_key = record.partition_key.clone();
-            match partition_key_to_shard_id(&self.shards, partition_key) {
+            match partition_key_to_shard_id(&self.shards, partition_key.clone()) {
                 Err(err) => {
-                    log::error!("get shard id by partition key error: {:?}", err)
+                    log::error!(
+                        "get shard id by partition key error: partition_key = {partition_key}, {err}"
+                    )
                 }
-                Ok(shard_id) => match self.shard_buffer.get_mut(&shard_id) {
-                    None => {
-                        let mut buffer_state: BufferState = default();
-                        buffer_state.modify(&record);
-                        self.shard_buffer_state.insert(shard_id, buffer_state);
-                        self.shard_buffer.insert(shard_id, vec![record]);
-                    }
-                    Some(buffer) => {
-                        let buffer_state = self.shard_buffer_state.get_mut(&shard_id).unwrap();
-                        buffer_state.modify(&record);
-                        buffer.push(record);
-                        if buffer_state.check(&self.flush_settings) {
-                            let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                            self.shard_buffer_state.insert(shard_id, default());
-                            let task = tokio::spawn(flush_(
-                                self.channels.clone(),
-                                self.url_scheme.clone(),
-                                self.stream_name.clone(),
-                                shard_id,
-                                self.compression_type,
-                                buffer,
-                            ));
-                            self.tasks.push(task);
+                Ok(shard_id) => {
+                    let shard_url = self.shard_urls.get(&shard_id);
+                    let shard_url_is_none = shard_url.is_none();
+                    match lookup_shard(
+                        &mut self.channels.channel().await,
+                        &self.url_scheme,
+                        shard_id,
+                        shard_url,
+                    )
+                    .await
+                    {
+                        Err(err) => {
+                            log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+                        }
+                        Ok(shard_url) => {
+                            if shard_url_is_none {
+                                self.shard_urls.insert(shard_id, shard_url.clone());
+                            };
+                            match self.shard_buffer.get_mut(&shard_id) {
+                                None => {
+                                    let mut buffer_state: BufferState = default();
+                                    buffer_state.modify(&record);
+                                    self.shard_buffer_state.insert(shard_id, buffer_state);
+                                    self.shard_buffer.insert(shard_id, vec![record]);
+                                }
+                                Some(buffer) => {
+                                    let buffer_state =
+                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                                    buffer_state.modify(&record);
+                                    buffer.push(record);
+                                    if buffer_state.check(&self.flush_settings) {
+                                        let buffer =
+                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                                        self.shard_buffer_state.insert(shard_id, default());
+                                        let task = tokio::spawn(flush_(
+                                            self.channels.clone(),
+                                            self.stream_name.clone(),
+                                            shard_id,
+                                            shard_url,
+                                            self.compression_type,
+                                            buffer,
+                                        ));
+                                        self.tasks.push(task);
+                                    }
+                                }
+                            }
                         }
                     }
-                },
+                }
             }
         }
 
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
-            let task = tokio::spawn(flush_(
-                self.channels.clone(),
-                self.url_scheme.clone(),
-                self.stream_name.clone(),
+            let shard_url = self.shard_urls.get(shard_id);
+            let shard_url_is_none = shard_url.is_none();
+            match lookup_shard(
+                &mut self.channels.channel().await,
+                &self.url_scheme,
                 *shard_id,
-                self.compression_type,
-                mem::take(buffer),
-            ));
-            self.tasks.push(task);
+                shard_url,
+            )
+            .await
+            {
+                Err(err) => {
+                    log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+                }
+                Ok(shard_url) => {
+                    if shard_url_is_none {
+                        self.shard_urls.insert(*shard_id, shard_url.clone());
+                    };
+                    let task = tokio::spawn(flush_(
+                        self.channels.clone(),
+                        self.stream_name.clone(),
+                        *shard_id,
+                        shard_url,
+                        self.compression_type,
+                        mem::take(buffer),
+                    ));
+                    self.tasks.push(task);
+                }
+            }
         }
 
         let tasks = std::mem::take(&mut self.tasks);
@@ -155,38 +201,28 @@ impl Producer {
 
 async fn flush(
     channels: Channels,
-    url_scheme: String,
     stream_name: String,
     shard_id: ShardId,
+    shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
 ) -> Result<(), String> {
     if !buffer.is_empty() {
-        match lookup_shard(&mut channels.channel().await, &url_scheme, shard_id).await {
-            Err(err) => {
-                log::warn!("{err}");
-                Ok(())
-            }
-            Ok(server_node) => {
-                let channel = channels
-                    .channel_at(server_node.clone())
-                    .await
-                    .map_err(|err| {
-                        format!("producer connect error: url = {server_node}, {err:?}")
-                    })?;
-                append(
-                    channel,
-                    stream_name,
-                    shard_id,
-                    compression_type,
-                    buffer.to_vec(),
-                )
-                .await
-                .map_err(|err| format!("producer append error: addr = {server_node}, {err:?}"))
-                .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
-                Ok(())
-            }
-        }
+        let channel = channels
+            .channel_at(shard_url.clone())
+            .await
+            .map_err(|err| format!("producer connect error: url = {shard_url}, {err}"))?;
+        append(
+            channel,
+            stream_name,
+            shard_id,
+            compression_type,
+            buffer.to_vec(),
+        )
+        .await
+        .map_err(|err| format!("producer append error: url = {shard_url}, {err}"))
+        .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
+        Ok(())
     } else {
         Ok(())
     }
@@ -194,17 +230,17 @@ async fn flush(
 
 async fn flush_(
     channels: Channels,
-    url_scheme: String,
     stream_name: String,
     shard_id: ShardId,
+    shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
 ) {
     flush(
         channels,
-        url_scheme,
         stream_name,
         shard_id,
+        shard_url,
         compression_type,
         buffer,
     )
