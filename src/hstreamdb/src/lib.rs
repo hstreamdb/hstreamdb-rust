@@ -1,6 +1,7 @@
 //! Rust client library for [HStreamDB](https://hstream.io/)
 
 //! ## Write Data to Streams
+//!
 //! ```
 //! use std::env;
 //!
@@ -67,8 +68,57 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Read Data from Subscriptions
+//!
+//! ```
+//! use std::env;
+//!
+//! use hstreamdb::client::Client;
+//! use hstreamdb::{SpecialOffset, Subscription};
+//! use tokio_stream::StreamExt;
+//!
+//! async fn consume_example() -> anyhow::Result<()> {
+//!     let addr = env::var("TEST_SERVER_ADDR").unwrap();
+//!     let mut client = Client::new(addr).await.unwrap();
+//!
+//!     let stream_name = "test_stream";
+//!     let subscription_id = "test_subscription";
+//!
+//!     client
+//!         .create_subscription(Subscription {
+//!             subscription_id: subscription_id.to_string(),
+//!             stream_name: stream_name.to_string(),
+//!             ack_timeout_seconds: 60 * 60,
+//!             max_unacked_records: 1000,
+//!             offset: SpecialOffset::Earliest,
+//!         })
+//!         .await?;
+//!     println!("{:?}", client.list_subscriptions().await?);
+//!
+//!     let mut stream = client
+//!         .streaming_fetch("test_consumer".to_string(), subscription_id.to_string())
+//!         .await
+//!         .unwrap();
+//!     let mut records = Vec::new();
+//!     while let Some((record, ack)) = stream.next().await {
+//!         println!("{record:?}");
+//!         records.push(record);
+//!         ack().unwrap();
+//!         if records.len() == 10 * 100 {
+//!             println!("done");
+//!             break;
+//!         }
+//!     }
+//!
+//!     client
+//!         .delete_subscription(subscription_id.to_string(), true)
+//!         .await?;
+//!
+//!     Ok(())
+//! }
+//! ```
 
-#![feature(try_blocks)]
 #![feature(box_syntax)]
 #![feature(default_free_fn)]
 
@@ -80,4 +130,6 @@ pub mod consumer;
 pub mod producer;
 pub mod utils;
 
-pub use common::{CompressionType, Error, Payload, Record, Result, Stream, Subscription};
+pub use common::{
+    CompressionType, Error, Payload, Record, Result, SpecialOffset, Stream, Subscription,
+};
