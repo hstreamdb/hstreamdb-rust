@@ -9,7 +9,7 @@ use num_traits::Num;
 use tonic::transport::Channel;
 
 use crate::common::{self, PartitionKey, Record, ShardId};
-use crate::format_url;
+use crate::{format_url, Error};
 
 pub fn record_id_to_string(record_id: &RecordId) -> String {
     format!(
@@ -22,18 +22,21 @@ pub async fn lookup_shard(
     channel: &mut HStreamApiClient<Channel>,
     url_scheme: &str,
     shard_id: ShardId,
-) -> Result<String, String> {
-    let server_node = channel
-        .lookup_shard(LookupShardRequest { shard_id })
-        .await
-        .map_err(|err| format!("lookup shard error: shard_id = {shard_id}, {err}"))?
-        .into_inner()
-        .server_node
-        .ok_or_else(|| {
-            format!("lookup shard error: shard_id = {shard_id}, failed to unwrap `server_node`")
-        })?;
-    let server_node = format_url!(url_scheme, server_node.host, server_node.port);
-    Ok(server_node)
+    shard_url: Option<&String>,
+) -> common::Result<String> {
+    match shard_url {
+        Some(url) => Ok(url.to_string()),
+        None => {
+            let server_node = channel
+                .lookup_shard(LookupShardRequest { shard_id })
+                .await?
+                .into_inner()
+                .server_node
+                .ok_or_else(|| Error::PBUnwrapError("server_node".to_string()))?;
+            let server_node = format_url!(url_scheme, server_node.host, server_node.port);
+            Ok(server_node)
+        }
+    }
 }
 
 pub fn clear_shard_buffer(
