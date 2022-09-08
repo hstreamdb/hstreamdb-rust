@@ -372,6 +372,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hstreamdb-erl-nifs"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "hstreamdb",
+ "log",
+ "once_cell",
+ "rustler",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
 name = "hstreamdb-pb"
 version = "0.1.0"
 dependencies = [
@@ -390,6 +403,7 @@ dependencies = [
  "env_logger",
  "log",
  "rand",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -856,6 +870,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustler"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d61e8ddf75de20513455d7b6f17241a595abbb01b53a6340cecc798a1b13422d"
+dependencies = [
+ "lazy_static",
+ "rustler_codegen",
+ "rustler_sys",
+]
+
+[[package]]
+name = "rustler_codegen"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baa2e45c0165272070f80ce93bcd7dd5407a3c84a1ef73ab9900e00f00ef3d36"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "rustler_sys"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ff26a42e62d538f82913dd34f60105ecfdffbdb25abdc3c3580b0c622285332"
+dependencies = [
+ "regex",
+ "unreachable",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,9 +1069,9 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "498f271adc46acce75d66f639e4d35b31b2394c295c82496727dafa16d465dd2"
+checksum = "11cd56bdb54ef93935a6a79dbd1d91f1ebd4c64150fd61654031fd6b8b775c91"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1193,14 +1240,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "url"
-version = "2.2.2"
+name = "unreachable"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a507c383b2d33b5fc35d1861e77e6b383d158b2da5e14fe51b83dfedf6fd578c"
+checksum = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
+dependencies = [
+ "void",
+]
+
+[[package]]
+name = "url"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22fe195a4f217c25b25cb5058ced57059824a678474874038dc88d211bf508d3"
 dependencies = [
  "form_urlencoded",
  "idna",
- "matches",
  "percent-encoding",
 ]
 
@@ -1209,6 +1264,12 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "void"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "want"

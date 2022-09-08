@@ -4,4 +4,5 @@ members = [
   "src/hstreamdb-pb",
   "src/utils/hstreamdb-test-utils",
   "src/utils/workspace-hack",
+  "src/x/hstreamdb-erl-nifs",
 ]
