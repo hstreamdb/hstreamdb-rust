@@ -3,6 +3,13 @@ edition = "2021"
 name = "hstreamdb"
 version = "0.1.0"
 
+license = "BSD-3-Clause"
+description = "Rust client library for HStreamDB"
+homepage = "https://hstream.io/"
+repository = "https://github.com/hstreamdb/hstreamdb-rust"
+readme = "README.md"
+keywords = ["hstreamdb", "streaming-database", "database-client"]
+
 [dependencies]
 workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 
