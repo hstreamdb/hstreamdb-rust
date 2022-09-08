@@ -1,6 +1,6 @@
 use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
-use hstreamdb::{CompressionType, Record};
+use hstreamdb::{CompressionType, Record, Stream};
 use rustler::{resource, Atom, Env, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
@@ -16,6 +16,29 @@ pub struct NifAppender(UnboundedSender<Record>);
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
     true
+}
+
+#[rustler::nif]
+pub fn create_stream(
+    url: String,
+    stream_name: String,
+    replication_factor: u32,
+    backlog_duration: u32,
+    shard_count: u32,
+) {
+    let future = async move {
+        let mut client = Client::new(url).await.unwrap();
+        client
+            .create_stream(Stream {
+                stream_name,
+                replication_factor,
+                backlog_duration,
+                shard_count,
+            })
+            .await
+            .unwrap()
+    };
+    _ = runtime::spawn(future)
 }
 
 #[rustler::nif]
@@ -49,10 +72,10 @@ pub fn start_producer(
 }
 
 #[rustler::nif]
-fn append(producer: ResourceArc<NifAppender>, partition_key: String, raw_payload: Vec<u8>) {
+fn append(producer: ResourceArc<NifAppender>, partition_key: String, raw_payload: String) {
     let record = Record {
         partition_key,
-        payload: hstreamdb::Payload::RawRecord(raw_payload),
+        payload: hstreamdb::Payload::RawRecord(raw_payload.into_bytes()),
     };
     let producer = &producer.0;
     producer.send(record).unwrap();
@@ -70,4 +93,8 @@ pub fn atom_to_compression_type(compression_type: Atom) -> CompressionType {
     }
 }
 
-rustler::init!("hstreamdb", [start_producer, append], load = load);
+rustler::init!(
+    "hstreamdb",
+    [create_stream, start_producer, append],
+    load = load
+);
