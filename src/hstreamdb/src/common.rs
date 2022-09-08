@@ -5,6 +5,7 @@ pub use hstreamdb_pb::{CompressionType, SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
 use tonic::transport;
 
+#[derive(Debug)]
 pub struct Subscription {
     pub subscription_id: String,
     pub stream_name: String,
