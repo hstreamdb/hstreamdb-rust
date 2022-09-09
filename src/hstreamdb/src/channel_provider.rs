@@ -1,10 +1,10 @@
 use std::collections::HashMap;
+use std::iter::FromIterator;
 
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tokio::task::JoinSet;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 
 use crate::client::get_available_node_addrs;
 use crate::common;
@@ -23,10 +23,16 @@ pub(crate) struct ChannelProvider {
 pub(crate) async fn new_channel_provider(
     url_scheme: &str,
     channel: &mut HStreamApiClient<Channel>,
+    settings: ChannelProviderSettings,
 ) -> common::Result<Channels> {
     let (channel_provider_request_sender, channel_provider_request_receiver) = unbounded_channel();
-    let channels =
-        ChannelProvider::new(channel, url_scheme, channel_provider_request_receiver).await?;
+    let channels = ChannelProvider::new(
+        channel,
+        url_scheme,
+        channel_provider_request_receiver,
+        settings,
+    )
+    .await?;
     _ = tokio::spawn(async move {
         let mut channels = channels;
         channels.start().await
@@ -61,40 +67,42 @@ impl Channels {
     }
 }
 
+pub struct ChannelProviderSettings {
+    pub concurrency_limit: usize,
+}
+
 impl ChannelProvider {
     pub(crate) async fn new(
         channel: &mut HStreamApiClient<Channel>,
         url_scheme: &str,
         request_receiver: UnboundedReceiver<Request>,
+        settings: ChannelProviderSettings,
     ) -> common::Result<Self> {
-        let channels = get_available_node_addrs(channel, url_scheme)
-            .await?
-            .into_iter()
-            .map(|addr| async move { (addr.clone(), HStreamApiClient::connect(addr).await) })
-            .collect::<Vec<_>>();
-        let mut join_set = JoinSet::new();
-        for channel in channels {
-            join_set.spawn(channel);
-        }
-        let mut channels = HashMap::new();
-        while let Some(channel) = join_set.join_next().await {
-            match channel {
-                Ok(channel) => {
-                    let url = channel.0;
-                    match channel.1 {
-                        Ok(channel) => {
-                            channels.insert(url, channel);
-                        }
-                        Err(err) => {
-                            log::warn!("connect error: url = {url}, {err}")
-                        }
-                    }
-                }
+        let urls = get_available_node_addrs(channel, url_scheme).await?;
+        let mut channels = Vec::new();
+        for url in urls {
+            match Endpoint::new(url.clone()) {
                 Err(err) => {
-                    log::warn!("connect error: {err}")
+                    log::warn!("create endpoint error: url = {url}, {err}");
+                    continue;
+                }
+                Ok(endpoint) => {
+                    let uri = endpoint.uri().clone();
+                    match endpoint
+                        .concurrency_limit(settings.concurrency_limit)
+                        .connect()
+                        .await
+                    {
+                        Err(err) => {
+                            log::warn!("connect to endpoint error: uri = {uri}, {err}");
+                            continue;
+                        }
+                        Ok(channel) => channels.push((url, HStreamApiClient::new(channel))),
+                    }
                 }
             }
         }
+        let channels = HashMap::from_iter(channels.into_iter());
         if channels.is_empty() {
             Err(common::Error::NoChannelAvailable)
         } else {
