@@ -9,7 +9,7 @@ use tonic::Request;
 use url::Url;
 
 use crate::appender::Appender;
-use crate::channel_provider::{new_channel_provider, Channels};
+use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
 use crate::producer::{FlushSettings, Producer};
 use crate::{common, format_url, producer};
 
@@ -19,7 +19,10 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn new<Destination>(server_url: Destination) -> Result<Self, common::Error>
+    pub async fn new<Destination>(
+        server_url: Destination,
+        channel_provider_settings: ChannelProviderSettings,
+    ) -> Result<Self, common::Error>
     where
         Destination: std::convert::Into<String>,
     {
@@ -27,7 +30,12 @@ impl Client {
         let url = Url::parse(&server_url)?;
         let mut hstream_api_client = HStreamApiClient::connect(server_url).await?;
         let url_scheme = url.scheme().to_string();
-        let channels = new_channel_provider(&url_scheme, &mut hstream_api_client).await?;
+        let channels = new_channel_provider(
+            &url_scheme,
+            &mut hstream_api_client,
+            channel_provider_settings,
+        )
+        .await?;
         Ok(Client {
             channels,
             url_scheme,
@@ -36,8 +44,16 @@ impl Client {
 }
 
 impl Client {
-    async fn new_channel_provider(&self) -> common::Result<Channels> {
-        new_channel_provider(&self.url_scheme, &mut self.channels.channel().await).await
+    async fn new_channel_provider(
+        &self,
+        channel_provider_settings: ChannelProviderSettings,
+    ) -> common::Result<Channels> {
+        new_channel_provider(
+            &self.url_scheme,
+            &mut self.channels.channel().await,
+            channel_provider_settings,
+        )
+        .await
     }
 }
 
@@ -154,11 +170,12 @@ impl Client {
         stream_name: String,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
+        channel_provider_settings: ChannelProviderSettings,
     ) -> common::Result<(Appender, Producer)> {
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<producer::Request>();
 
-        let channels = self.new_channel_provider().await?;
+        let channels = self.new_channel_provider(channel_provider_settings).await?;
 
         let appender = Appender::new(request_sender.clone());
         let producer = Producer::new(
@@ -207,12 +224,20 @@ mod tests {
     use hstreamdb_test_utils::rand_alphanumeric;
 
     use super::Client;
+    use crate::channel_provider::ChannelProviderSettings;
     use crate::Subscription;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(addr).await.unwrap();
+        let mut client = Client::new(
+            addr,
+            ChannelProviderSettings {
+                concurrency_limit: 8,
+            },
+        )
+        .await
+        .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,
@@ -245,7 +270,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_subscription_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(addr).await.unwrap();
+        let mut client = Client::new(
+            addr,
+            ChannelProviderSettings {
+                concurrency_limit: 8,
+            },
+        )
+        .await
+        .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,

@@ -3,6 +3,7 @@ use std::env;
 use hstreamdb::client::Client;
 use hstreamdb::common::Record;
 use hstreamdb::producer::FlushSettings;
+use hstreamdb::ChannelProviderSettings;
 use hstreamdb_pb::Stream;
 use hstreamdb_test_utils::rand_alphanumeric;
 
@@ -11,7 +12,14 @@ async fn test_producer() {
     env_logger::init();
 
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
-    let mut client = Client::new(addr).await.unwrap();
+    let mut client = Client::new(
+        addr,
+        ChannelProviderSettings {
+            concurrency_limit: 8,
+        },
+    )
+    .await
+    .unwrap();
 
     let stream_name = format!("stream-{}", rand_alphanumeric(10));
     client
@@ -30,6 +38,9 @@ async fn test_producer() {
             FlushSettings {
                 len: 10,
                 size: usize::MAX,
+            },
+            ChannelProviderSettings {
+                concurrency_limit: 8,
             },
         )
         .await

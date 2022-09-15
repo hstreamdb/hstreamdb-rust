@@ -1,5 +1,7 @@
 -module(hstreamdb).
 
+-compile([nowarn_unused_vars]).
+
 -on_load(init/0).
 
 -export([create_stream/5, start_producer/4, append/3]).
@@ -10,8 +12,8 @@
 -type compression_type() :: none | gzip | zstd.
 
 init() ->
-    Load = erlang:load_nif("../../target/release/libhstreamdb_erl_nifs", 0),
-    io:format("~p~n", [Load]).
+    ok = erlang:load_nif("../../target/release/libhstreamdb_erl_nifs", 0),
+    ok.
 
 -spec create_stream(
     ServerUrl :: binary(),
@@ -21,13 +23,7 @@ init() ->
     ShardCount :: pos_integer()
 ) ->
     ok.
-create_stream(
-    _ServerUrl,
-    _StreamName,
-    _ReplicationFactor,
-    _BacklogDuration,
-    _ShardCount
-) ->
+create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCount) ->
     none.
 
 -spec start_producer(
@@ -37,10 +33,10 @@ create_stream(
     FlushSettings :: proplists:proplist()
 ) ->
     producer().
-start_producer(_ServerUrl, _StreamName, _CompressionType, _FlushSettings) ->
+start_producer(ServerUrl, StreamName, CompressionType, FlushSettings) ->
     none.
 
 -spec append(Producer :: producer(), PartitionKey :: binary(), RawPayload :: binary()) ->
     ok.
-append(_Producer, _PartitionKey, _RawPayload) ->
+append(Producer, PartitionKey, RawPayload) ->
     none.

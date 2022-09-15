@@ -7,12 +7,18 @@
 //!
 //! use hstreamdb::client::Client;
 //! use hstreamdb::producer::FlushSettings;
-//! use hstreamdb::{CompressionType, Payload, Record, Stream};
+//! use hstreamdb::{ChannelProviderSettings, CompressionType, Payload, Record, Stream};
 //! use rand::distributions::Alphanumeric;
 //! use rand::{thread_rng, Rng};
 //!
 //! async fn produce_example() -> anyhow::Result<()> {
-//!     let mut client = Client::new(env::var("TEST_SERVER_ADDR")?).await?;
+//!     let mut client = Client::new(
+//!         env::var("TEST_SERVER_ADDR")?,
+//!         ChannelProviderSettings {
+//!             concurrency_limit: 8,
+//!         },
+//!     )
+//!     .await?;
 //!
 //!     let stream_name = "test_stream";
 //!
@@ -34,6 +40,9 @@
 //!             FlushSettings {
 //!                 len: 10,
 //!                 size: 4000 * 20,
+//!             },
+//!             ChannelProviderSettings {
+//!                 concurrency_limit: 8,
 //!             },
 //!         )
 //!         .await?;
@@ -75,12 +84,17 @@
 //! use std::env;
 //!
 //! use hstreamdb::client::Client;
-//! use hstreamdb::{SpecialOffset, Subscription};
+//! use hstreamdb::{ChannelProviderSettings, SpecialOffset, Subscription};
 //! use tokio_stream::StreamExt;
 //!
 //! async fn consume_example() -> anyhow::Result<()> {
-//!     let addr = env::var("TEST_SERVER_ADDR").unwrap();
-//!     let mut client = Client::new(addr).await.unwrap();
+//!     let mut client = Client::new(
+//!         env::var("TEST_SERVER_ADDR")?,
+//!         ChannelProviderSettings {
+//!             concurrency_limit: 8,
+//!         },
+//!     )
+//!     .await?;
 //!
 //!     let stream_name = "test_stream";
 //!     let subscription_id = "test_subscription";
@@ -98,8 +112,7 @@
 //!
 //!     let mut stream = client
 //!         .streaming_fetch("test_consumer".to_string(), subscription_id.to_string())
-//!         .await
-//!         .unwrap();
+//!         .await?;
 //!     let mut records = Vec::new();
 //!     while let Some((record, ack)) = stream.next().await {
 //!         println!("{record:?}");
@@ -130,6 +143,7 @@ pub mod consumer;
 pub mod producer;
 pub mod utils;
 
+pub use channel_provider::ChannelProviderSettings;
 pub use common::{
     CompressionType, Error, Payload, Record, Result, SpecialOffset, Stream, Subscription,
 };

@@ -3,7 +3,7 @@ use std::env;
 use hstreamdb::client::Client;
 use hstreamdb::common::Record;
 use hstreamdb::producer::FlushSettings;
-use hstreamdb::Subscription;
+use hstreamdb::{ChannelProviderSettings, Subscription};
 use hstreamdb_pb::{SpecialOffset, Stream};
 use hstreamdb_test_utils::rand_alphanumeric;
 use tokio_stream::StreamExt;
@@ -13,7 +13,14 @@ async fn test_consumer() {
     env_logger::init();
 
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
-    let mut client = Client::new(addr).await.unwrap();
+    let mut client = Client::new(
+        addr,
+        ChannelProviderSettings {
+            concurrency_limit: 8,
+        },
+    )
+    .await
+    .unwrap();
 
     let stream_name = format!("stream-{}", rand_alphanumeric(10));
     let subscription_id = format!("subscription-{}", rand_alphanumeric(10));
@@ -45,6 +52,9 @@ async fn test_consumer() {
             FlushSettings {
                 len: 10,
                 size: usize::MAX,
+            },
+            ChannelProviderSettings {
+                concurrency_limit: 8,
             },
         )
         .await

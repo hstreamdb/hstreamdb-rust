@@ -1,6 +1,6 @@
 use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
-use hstreamdb::{CompressionType, Record, Stream};
+use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
 use rustler::types::atom::ok;
 use rustler::{resource, Atom, Env, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -36,7 +36,14 @@ pub fn create_stream(
     shard_count: u32,
 ) -> Atom {
     let future = async move {
-        let mut client = Client::new(url).await.unwrap();
+        let mut client = Client::new(
+            url,
+            ChannelProviderSettings {
+                concurrency_limit: 8,
+            },
+        )
+        .await
+        .unwrap();
         client
             .create_stream(Stream {
                 stream_name,
@@ -62,9 +69,23 @@ pub fn start_producer(
     let compression_type = atom_to_compression_type(compression_type);
     let flush_settings = new_flush_settings(flush_settings);
     let future = async move {
-        let mut client = Client::new(url).await.unwrap();
+        let mut client = Client::new(
+            url,
+            ChannelProviderSettings {
+                concurrency_limit: 8,
+            },
+        )
+        .await
+        .unwrap();
         let (appender, mut producer) = client
-            .new_producer(stream_name, compression_type, flush_settings)
+            .new_producer(
+                stream_name,
+                compression_type,
+                flush_settings,
+                ChannelProviderSettings {
+                    concurrency_limit: 8,
+                },
+            )
             .await
             .unwrap();
 
