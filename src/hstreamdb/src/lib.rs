@@ -7,7 +7,7 @@
 //!
 //! use hstreamdb::client::Client;
 //! use hstreamdb::producer::FlushSettings;
-//! use hstreamdb::{CompressionType, Payload, Record, Stream};
+//! use hstreamdb::{ChannelProviderSettings, CompressionType, Payload, Record, Stream};
 //! use rand::distributions::Alphanumeric;
 //! use rand::{thread_rng, Rng};
 //!
@@ -40,6 +40,9 @@
 //!             FlushSettings {
 //!                 len: 10,
 //!                 size: 4000 * 20,
+//!             },
+//!             ChannelProviderSettings {
+//!                 concurrency_limit: 8,
 //!             },
 //!         )
 //!         .await?;
@@ -81,7 +84,7 @@
 //! use std::env;
 //!
 //! use hstreamdb::client::Client;
-//! use hstreamdb::{SpecialOffset, Subscription};
+//! use hstreamdb::{ChannelProviderSettings, SpecialOffset, Subscription};
 //! use tokio_stream::StreamExt;
 //!
 //! async fn consume_example() -> anyhow::Result<()> {
