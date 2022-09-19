@@ -57,6 +57,8 @@ pub enum Error {
     PBUnwrapError(String),
     #[error("No channel is available")]
     NoChannelAvailable,
+    #[error("{0}")]
+    BadArgument(String),
 }
 
 #[derive(Debug, thiserror::Error)]

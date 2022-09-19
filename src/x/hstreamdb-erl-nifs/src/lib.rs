@@ -111,7 +111,7 @@ pub fn try_start_producer(
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
         unbounded_channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>();
-    let (compression_type, concurrency_limit, flush_settings) = new_producer_settings(settings);
+    let (compression_type, concurrency_limit, flush_settings) = new_producer_settings(settings)?;
     let future = async move {
         let xs = async move {
             let mut client = Client::new(
@@ -232,24 +232,36 @@ fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
     }
 }
 
-fn new_producer_settings(proplists: Term) -> (CompressionType, usize, FlushSettings) {
-    let proplists = proplists.into_list_iterator().unwrap();
+fn new_producer_settings(
+    proplists: Term,
+) -> hstreamdb::Result<(CompressionType, usize, FlushSettings)> {
+    let proplists = proplists
+        .into_list_iterator()
+        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
     let mut concurrency_limit_v = None;
     let mut len_v = usize::MAX;
     let mut size_v = usize::MAX;
-    let mut compression_type_v: Option<Atom> = None;
+    let mut compression_type_v: Atom = none();
 
     for x in proplists {
         if x.is_tuple() {
-            let (k, v): (Atom, Term) = x.decode().unwrap();
+            let (k, v): (Atom, Term) = x
+                .decode()
+                .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             if k == concurrency_limit() {
                 concurrency_limit_v = v.decode().ok()
             } else if k == len() {
-                len_v = v.decode().unwrap();
+                len_v = v
+                    .decode()
+                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             } else if k == size() {
-                size_v = v.decode().unwrap();
+                size_v = v
+                    .decode()
+                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             } else if k == compression_type() {
-                compression_type_v = v.decode().ok();
+                compression_type_v = v
+                    .decode()
+                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             }
         }
     }
@@ -258,13 +270,18 @@ fn new_producer_settings(proplists: Term) -> (CompressionType, usize, FlushSetti
         len_v = 0;
         size_v = 0;
     }
-    let compression_type_v = compression_type_v.and_then(atom_to_compression_type);
-    (
-        compression_type_v.unwrap_or(CompressionType::None),
+    let compression_type_v = atom_to_compression_type(compression_type_v).ok_or_else(|| {
+        hstreamdb::Error::BadArgument(format!(
+            "no match for compression type `{compression_type_v:?}`"
+        ))
+    })?;
+
+    Ok((
+        compression_type_v,
         concurrency_limit_v.unwrap_or(16),
         FlushSettings {
             len: len_v,
             size: size_v,
         },
-    )
+    ))
 }
