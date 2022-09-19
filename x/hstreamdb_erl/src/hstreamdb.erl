@@ -4,11 +4,12 @@
 
 -on_load(init/0).
 
--export([create_stream/5, start_producer/4, stop_producer/1, append/3]).
+-export([create_stream/5, start_producer/4, stop_producer/1, append/3, await_append_result/1]).
 
 -export_type([producer/0, compression_type/0]).
 
 -type producer() :: any().
+-type append_result() :: any().
 -type compression_type() :: none | gzip | zstd.
 
 init() ->
@@ -41,6 +42,10 @@ stop_producer(Producer) ->
     none.
 
 -spec append(Producer :: producer(), PartitionKey :: binary(), RawPayload :: binary()) ->
-    ok.
+    append_result().
 append(Producer, PartitionKey, RawPayload) ->
     none.
+
+-spec await_append_result(AppendResult :: append_result()) -> {ok, binary()} | {error, binary()}.
+
+await_append_result(AppendResult) -> none.
