@@ -141,6 +141,28 @@ impl Producer {
                                     self.shard_buffer.insert(shard_id, vec![record]);
                                     self.shard_buffer_result
                                         .insert(shard_id, vec![result_sender]);
+
+                                    let buffer_state =
+                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                                    if buffer_state.check(&self.flush_settings) {
+                                        let buffer =
+                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                                        let results = clear_shard_buffer(
+                                            &mut self.shard_buffer_result,
+                                            shard_id,
+                                        );
+                                        self.shard_buffer_state.insert(shard_id, default());
+                                        let task = tokio::spawn(flush_(
+                                            self.channels.clone(),
+                                            self.stream_name.clone(),
+                                            shard_id,
+                                            shard_url,
+                                            self.compression_type,
+                                            buffer,
+                                            results,
+                                        ));
+                                        self.tasks.push(task);
+                                    }
                                 }
                                 Some(buffer) => {
                                     self.shard_buffer_result
@@ -151,6 +173,7 @@ impl Producer {
                                         self.shard_buffer_state.get_mut(&shard_id).unwrap();
                                     buffer_state.modify(&record);
                                     buffer.push(record);
+
                                     if buffer_state.check(&self.flush_settings) {
                                         let buffer =
                                             clear_shard_buffer(&mut self.shard_buffer, shard_id);
