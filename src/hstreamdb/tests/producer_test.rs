@@ -49,13 +49,16 @@ async fn test_producer() {
     let _ = tokio::spawn(async move {
         let mut appender = appender;
         for _ in 0..100 {
-            appender
+            let result = appender
                 .append(Record {
                     partition_key: "".to_string(),
                     payload: hstreamdb::common::Payload::RawRecord(
                         rand_alphanumeric(20).as_bytes().to_vec(),
                     ),
                 })
+                .unwrap()
+                .await
+                .unwrap()
                 .unwrap();
         }
         drop(appender)

@@ -1,4 +1,8 @@
-use crate::common::Record;
+use std::sync::Arc;
+
+use tokio::sync::oneshot;
+
+use crate::common::{self, Record};
 use crate::producer::{self, Request};
 
 #[derive(Clone)]
@@ -13,9 +17,14 @@ impl Appender {
 }
 
 impl Appender {
-    pub fn append(&mut self, record: Record) -> Result<(), producer::SendError> {
+    pub fn append(
+        &mut self,
+        record: Record,
+    ) -> Result<oneshot::Receiver<Result<String, Arc<common::Error>>>, producer::SendError> {
+        let (sender, receiver) = oneshot::channel();
         self.request_sender
-            .send(Request(record))
-            .map_err(Into::into)
+            .send(Request(record, sender))
+            .map_err(Into::<producer::SendError>::into)?;
+        Ok(receiver)
     }
 }

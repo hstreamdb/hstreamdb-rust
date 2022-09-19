@@ -65,13 +65,16 @@ async fn test_consumer() {
 
         for _ in 0..10 {
             for _ in 0..100 {
-                appender
+                let result = appender
                     .append(Record {
                         partition_key: "".to_string(),
                         payload: hstreamdb::common::Payload::RawRecord(
                             rand_alphanumeric(20).as_bytes().to_vec(),
                         ),
                     })
+                    .unwrap()
+                    .await
+                    .unwrap()
                     .unwrap();
             }
         }

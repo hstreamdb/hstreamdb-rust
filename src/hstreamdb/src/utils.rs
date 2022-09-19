@@ -8,7 +8,7 @@ use num_bigint::BigInt;
 use num_traits::Num;
 use tonic::transport::Channel;
 
-use crate::common::{self, PartitionKey, Record, ShardId};
+use crate::common::{self, PartitionKey, ShardId};
 use crate::{format_url, Error};
 
 pub fn record_id_to_string(record_id: &RecordId) -> String {
@@ -39,15 +39,15 @@ pub async fn lookup_shard(
     }
 }
 
-pub fn clear_shard_buffer(
-    shard_buffer: &mut HashMap<ShardId, Vec<Record>>,
+pub fn clear_shard_buffer<A>(
+    shard_buffer: &mut HashMap<ShardId, Vec<A>>,
     shard_id: ShardId,
-) -> Vec<Record> {
+) -> Vec<A> {
     let raw_buffer = shard_buffer.get_mut(&shard_id).unwrap();
     clear_buffer(raw_buffer)
 }
 
-pub fn clear_buffer(buffer: &mut Vec<Record>) -> Vec<Record> {
+pub fn clear_buffer<A>(buffer: &mut Vec<A>) -> Vec<A> {
     let mut new_buffer = Vec::new();
     mem::swap(buffer, &mut new_buffer);
     new_buffer

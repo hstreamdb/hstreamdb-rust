@@ -93,7 +93,7 @@ pub fn start_producer(
             let mut request_receiver = request_receiver;
             let mut appender = appender;
             while let Some(record) = request_receiver.recv().await {
-                appender.append(record).unwrap()
+                _ = appender.append(record).unwrap()
             }
         });
         producer.start().await
