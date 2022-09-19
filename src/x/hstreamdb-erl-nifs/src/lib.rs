@@ -1,10 +1,11 @@
 use std::mem;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
 use once_cell::sync::OnceCell;
+use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
 use rustler::{resource, Atom, Encoder, Env, NifResult, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -205,7 +206,7 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
 
     if result.get().is_none() {
         let receiver: &Mutex<_> = &x.0;
-        let mut receiver: MutexGuard<Option<_>> = receiver.lock().unwrap();
+        let mut receiver: MutexGuard<Option<_>> = receiver.lock();
         let receiver = mem::take(&mut (*receiver));
         let append_result: Result<String, Arc<_>> = receiver.unwrap().blocking_recv().unwrap();
         let append_result = match append_result {
