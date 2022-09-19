@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 mod runtime;
 
 rustler::atoms! {
-    none, gzip, zstd,
+    compression_type, none, gzip, zstd,
     concurrency_limit, len, size
 }
 
@@ -106,14 +106,12 @@ pub fn create_stream(
 pub fn try_start_producer(
     url: String,
     stream_name: String,
-    compression_type: Atom,
     settings: Term,
 ) -> hstreamdb::Result<ResourceArc<NifAppender>> {
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
         unbounded_channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>();
-    let compression_type = atom_to_compression_type(compression_type);
-    let (concurrency_limit, flush_settings) = new_producer_settings(settings);
+    let (compression_type, concurrency_limit, flush_settings) = new_producer_settings(settings);
     let future = async move {
         let xs = async move {
             let mut client = Client::new(
@@ -164,10 +162,9 @@ pub fn start_producer<'a>(
     env: Env<'a>,
     url: String,
     stream_name: String,
-    compression_type: Atom,
     settings: Term,
 ) -> NifResult<Term<'a>> {
-    try_start_producer(url, stream_name, compression_type, settings)
+    try_start_producer(url, stream_name, settings)
         .map(|x| Encoder::encode(&(ok(), x), env))
         .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
@@ -223,33 +220,36 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
     result.encode(env)
 }
 
-fn atom_to_compression_type(compression_type: Atom) -> CompressionType {
+fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
     if compression_type == none() {
-        CompressionType::None
+        Some(CompressionType::None)
     } else if compression_type == gzip() {
-        CompressionType::Gzip
+        Some(CompressionType::Gzip)
     } else if compression_type == zstd() {
-        CompressionType::Zstd
+        Some(CompressionType::Zstd)
     } else {
-        panic!()
+        None
     }
 }
 
-fn new_producer_settings(proplists: Term) -> (usize, FlushSettings) {
+fn new_producer_settings(proplists: Term) -> (CompressionType, usize, FlushSettings) {
     let proplists = proplists.into_list_iterator().unwrap();
     let mut concurrency_limit_v = None;
     let mut len_v = usize::MAX;
     let mut size_v = usize::MAX;
+    let mut compression_type_v: Option<Atom> = None;
 
     for x in proplists {
         if x.is_tuple() {
-            let (k, v): (Atom, usize) = x.decode().unwrap();
+            let (k, v): (Atom, Term) = x.decode().unwrap();
             if k == concurrency_limit() {
-                concurrency_limit_v = Some(v)
+                concurrency_limit_v = v.decode().ok()
             } else if k == len() {
-                len_v = v;
+                len_v = v.decode().unwrap();
             } else if k == size() {
-                size_v = v;
+                size_v = v.decode().unwrap();
+            } else if k == compression_type() {
+                compression_type_v = v.decode().ok();
             }
         }
     }
@@ -258,7 +258,9 @@ fn new_producer_settings(proplists: Term) -> (usize, FlushSettings) {
         len_v = 0;
         size_v = 0;
     }
+    let compression_type_v = compression_type_v.and_then(atom_to_compression_type);
     (
+        compression_type_v.unwrap_or(CompressionType::None),
         concurrency_limit_v.unwrap_or(16),
         FlushSettings {
             len: len_v,

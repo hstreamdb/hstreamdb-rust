@@ -4,7 +4,7 @@
 
 -on_load(init/0).
 
--export([create_stream/5, start_producer/4, stop_producer/1, append/3, await_append_result/1]).
+-export([create_stream/5, start_producer/3, stop_producer/1, append/3, await_append_result/1]).
 
 -export_type([producer/0, compression_type/0]).
 
@@ -30,11 +30,10 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
 -spec start_producer(
     ServerUrl :: binary(),
     StreamName :: binary(),
-    CompressionType :: compression_type(),
     ProducerSettings :: proplists:proplist()
 ) ->
     {ok, producer()} | {error, binary()}.
-start_producer(ServerUrl, StreamName, CompressionType, ProducerSettings) ->
+start_producer(ServerUrl, StreamName, ProducerSettings) ->
     none.
 
 -spec stop_producer(Producer :: producer()) -> ok.
