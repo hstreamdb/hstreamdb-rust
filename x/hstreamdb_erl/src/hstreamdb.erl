@@ -11,6 +11,11 @@
 -type producer() :: any().
 -type append_result() :: any().
 -type compression_type() :: none | gzip | zstd.
+-type producer_setting() ::
+    {compression_type, compression_type()}
+    | {concurrency_limit, pos_integer()}
+    | {len, non_neg_integer()}
+    | {size, non_neg_integer()}.
 
 init() ->
     ok = erlang:load_nif("../../target/release/libhstreamdb_erl_nifs", 0),
@@ -30,7 +35,7 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
 -spec start_producer(
     ServerUrl :: binary(),
     StreamName :: binary(),
-    ProducerSettings :: proplists:proplist()
+    ProducerSettings :: [producer_setting()]
 ) ->
     {ok, producer()} | {error, binary()}.
 start_producer(ServerUrl, StreamName, ProducerSettings) ->
