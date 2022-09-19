@@ -10,7 +10,7 @@ mod runtime;
 
 rustler::atoms! {
     none, gzip, zstd,
-    len, size
+    concurrency_limit, len, size
 }
 
 rustler::init!(
@@ -41,7 +41,7 @@ pub fn try_create_stream(
             let mut client = Client::new(
                 url,
                 ChannelProviderSettings {
-                    concurrency_limit: 8,
+                    concurrency_limit: 1,
                 },
             )
             .await?;
@@ -87,16 +87,16 @@ pub fn start_producer(
     url: String,
     stream_name: String,
     compression_type: Atom,
-    flush_settings: Term,
+    settings: Term,
 ) -> ResourceArc<NifAppender> {
     let (request_sender, request_receiver) = unbounded_channel::<Option<Record>>();
     let compression_type = atom_to_compression_type(compression_type);
-    let flush_settings = new_flush_settings(flush_settings);
+    let (concurrency_limit, flush_settings) = new_producer_settings(settings);
     let future = async move {
         let mut client = Client::new(
             url,
             ChannelProviderSettings {
-                concurrency_limit: 8,
+                concurrency_limit: 1,
             },
         )
         .await
@@ -106,9 +106,7 @@ pub fn start_producer(
                 stream_name,
                 compression_type,
                 flush_settings,
-                ChannelProviderSettings {
-                    concurrency_limit: 8,
-                },
+                ChannelProviderSettings { concurrency_limit },
             )
             .await
             .unwrap();
@@ -159,15 +157,18 @@ fn atom_to_compression_type(compression_type: Atom) -> CompressionType {
     }
 }
 
-fn new_flush_settings(proplists: Term) -> FlushSettings {
+fn new_producer_settings(proplists: Term) -> (usize, FlushSettings) {
     let proplists = proplists.into_list_iterator().unwrap();
+    let mut concurrency_limit_v = None;
     let mut len_v = usize::MAX;
     let mut size_v = usize::MAX;
 
     for x in proplists {
         if x.is_tuple() {
             let (k, v): (Atom, usize) = x.decode().unwrap();
-            if k == len() {
+            if k == concurrency_limit() {
+                concurrency_limit_v = Some(v)
+            } else if k == len() {
                 len_v = v;
             } else if k == size() {
                 size_v = v;
@@ -179,8 +180,11 @@ fn new_flush_settings(proplists: Term) -> FlushSettings {
         len_v = 0;
         size_v = 0;
     }
-    FlushSettings {
-        len: len_v,
-        size: size_v,
-    }
+    (
+        concurrency_limit_v.unwrap_or(16),
+        FlushSettings {
+            len: len_v,
+            size: size_v,
+        },
+    )
 }

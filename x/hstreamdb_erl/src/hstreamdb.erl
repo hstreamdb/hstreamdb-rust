@@ -30,10 +30,10 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
     ServerUrl :: binary(),
     StreamName :: binary(),
     CompressionType :: compression_type(),
-    FlushSettings :: proplists:proplist()
+    ProducerSettings :: proplists:proplist()
 ) ->
     producer().
-start_producer(ServerUrl, StreamName, CompressionType, FlushSettings) ->
+start_producer(ServerUrl, StreamName, CompressionType, ProducerSettings) ->
     none.
 
 -spec stop_producer(Producer :: producer()) -> ok.
