@@ -4,11 +4,12 @@
 
 -on_load(init/0).
 
--export([create_stream/5, start_producer/4, stop_producer/1, append/3]).
+-export([create_stream/5, start_producer/4, stop_producer/1, append/3, await_append_result/1]).
 
 -export_type([producer/0, compression_type/0]).
 
 -type producer() :: any().
+-type append_result() :: any().
 -type compression_type() :: none | gzip | zstd.
 
 init() ->
@@ -22,7 +23,7 @@ init() ->
     BacklogDuration :: pos_integer(),
     ShardCount :: pos_integer()
 ) ->
-    ok.
+    ok | {error, binary()}.
 create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCount) ->
     none.
 
@@ -30,18 +31,21 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
     ServerUrl :: binary(),
     StreamName :: binary(),
     CompressionType :: compression_type(),
-    FlushSettings :: proplists:proplist()
+    ProducerSettings :: proplists:proplist()
 ) ->
-    producer().
-start_producer(ServerUrl, StreamName, CompressionType, FlushSettings) ->
+    {ok, producer()} | {error, binary()}.
+start_producer(ServerUrl, StreamName, CompressionType, ProducerSettings) ->
     none.
 
--spec stop_producer(
-    Producer :: producer()
-) -> ok.
-stop_producer(Producer) -> none.
+-spec stop_producer(Producer :: producer()) -> ok.
+stop_producer(Producer) ->
+    none.
 
 -spec append(Producer :: producer(), PartitionKey :: binary(), RawPayload :: binary()) ->
-    ok.
+    append_result().
 append(Producer, PartitionKey, RawPayload) ->
     none.
+
+-spec await_append_result(AppendResult :: append_result()) -> {ok, binary()} | {error, binary()}.
+
+await_append_result(AppendResult) -> none.

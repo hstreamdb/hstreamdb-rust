@@ -249,18 +249,22 @@ async fn flush(
             Err(err) => {
                 let err = Arc::new(err);
                 for sender in results.into_iter() {
-                    sender.send(Err(err.clone())).unwrap_or_else(|err| {
-                        log::error!("return append result error: err = {}", err.unwrap_err())
-                    })
+                    if !sender.is_closed() {
+                        sender.send(Err(err.clone())).unwrap_or_else(|err| {
+                            log::error!("return append result error: err = {}", err.unwrap_err())
+                        })
+                    }
                 }
                 Err(format!("producer append error: url = {shard_url}, {err}"))
             }
             Ok(append_result) => {
                 log::debug!("append succeed: len = {}", append_result.len());
                 for (result, sender) in append_result.into_iter().zip(results) {
-                    sender.send(Ok(result)).unwrap_or_else(|err| {
-                        log::error!("return append result error: ok = {}", err.unwrap())
-                    })
+                    if !sender.is_closed() {
+                        sender.send(Ok(result)).unwrap_or_else(|err| {
+                            log::error!("return append result error: ok = {}", err.unwrap())
+                        })
+                    }
                 }
                 Ok(())
             }
