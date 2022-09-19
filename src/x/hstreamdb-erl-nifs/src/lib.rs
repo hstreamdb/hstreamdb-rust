@@ -150,7 +150,7 @@ pub fn start_producer<'a>(
 #[rustler::nif]
 fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     let producer = &producer.0;
-    producer.send(None).unwrap();
+    producer.send(None).unwrap_or(());
     ok()
 }
 
