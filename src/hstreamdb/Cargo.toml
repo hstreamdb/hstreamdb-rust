@@ -25,7 +25,7 @@ hstreamdb-pb = { version = "0.1.0", path = "../hstreamdb-pb/" }
 prost-types = "0.11.1"
 
 prost = "0.11.0"
-tokio = { version = "1.21.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.21.0", features = ["rt-multi-thread", "parking_lot"] }
 tokio-stream = "0.1.9"
 tonic = "0.8.0"
 url = "2.2.2"
