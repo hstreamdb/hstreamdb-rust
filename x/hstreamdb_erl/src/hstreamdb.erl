@@ -22,7 +22,7 @@ init() ->
     BacklogDuration :: pos_integer(),
     ShardCount :: pos_integer()
 ) ->
-    ok.
+    ok | {error, binary()}.
 create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCount) ->
     none.
 
@@ -36,10 +36,9 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
 start_producer(ServerUrl, StreamName, CompressionType, FlushSettings) ->
     none.
 
--spec stop_producer(
-    Producer :: producer()
-) -> ok.
-stop_producer(Producer) -> none.
+-spec stop_producer(Producer :: producer()) -> ok.
+stop_producer(Producer) ->
+    none.
 
 -spec append(Producer :: producer(), PartitionKey :: binary(), RawPayload :: binary()) ->
     ok.

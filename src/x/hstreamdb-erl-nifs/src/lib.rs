@@ -2,8 +2,9 @@ use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
 use rustler::types::atom::ok;
-use rustler::{resource, Atom, Env, ResourceArc, Term};
+use rustler::{resource, Atom, Env, NifResult, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::oneshot;
 
 mod runtime;
 
@@ -27,35 +28,58 @@ fn load(env: Env, _: Term) -> bool {
     true
 }
 
-#[rustler::nif]
-pub fn create_stream(
+pub fn try_create_stream(
     url: String,
     stream_name: String,
     replication_factor: u32,
     backlog_duration: u32,
     shard_count: u32,
-) -> Atom {
+) -> hstreamdb::Result<()> {
+    let (sender, receiver) = oneshot::channel();
     let future = async move {
-        let mut client = Client::new(
-            url,
-            ChannelProviderSettings {
-                concurrency_limit: 8,
-            },
-        )
-        .await
-        .unwrap();
-        client
-            .create_stream(Stream {
-                stream_name,
-                replication_factor,
-                backlog_duration,
-                shard_count,
-            })
-            .await
-            .unwrap()
+        let xs = async move {
+            let mut client = Client::new(
+                url,
+                ChannelProviderSettings {
+                    concurrency_limit: 8,
+                },
+            )
+            .await?;
+            client
+                .create_stream(Stream {
+                    stream_name,
+                    replication_factor,
+                    backlog_duration,
+                    shard_count,
+                })
+                .await?;
+            Ok::<(), hstreamdb::Error>(())
+        };
+        let xs = xs.await;
+        sender.send(xs).unwrap()
     };
     _ = runtime::spawn(future);
-    ok()
+    receiver.blocking_recv().unwrap()
+}
+
+#[rustler::nif]
+pub fn create_stream(
+    env: Env,
+    url: String,
+    stream_name: String,
+    replication_factor: u32,
+    backlog_duration: u32,
+    shard_count: u32,
+) -> NifResult<Term> {
+    try_create_stream(
+        url,
+        stream_name,
+        replication_factor,
+        backlog_duration,
+        shard_count,
+    )
+    .map(|()| ok().to_term(env))
+    .map_err(|x| rustler::Error::Term(Box::new(x.to_string())))
 }
 
 #[rustler::nif]
