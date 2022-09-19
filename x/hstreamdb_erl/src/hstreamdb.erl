@@ -4,7 +4,7 @@
 
 -on_load(init/0).
 
--export([create_stream/5, start_producer/4, append/3]).
+-export([create_stream/5, start_producer/4, stop_producer/1, append/3]).
 
 -export_type([producer/0, compression_type/0]).
 
@@ -35,6 +35,11 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
     producer().
 start_producer(ServerUrl, StreamName, CompressionType, FlushSettings) ->
     none.
+
+-spec stop_producer(
+    Producer :: producer()
+) -> ok.
+stop_producer(Producer) -> none.
 
 -spec append(Producer :: producer(), PartitionKey :: binary(), RawPayload :: binary()) ->
     ok.
