@@ -14,12 +14,12 @@ rustler::atoms! {
 
 rustler::init!(
     "hstreamdb",
-    [create_stream, start_producer, append],
+    [create_stream, start_producer, stop_producer, append],
     load = load
 );
 
 #[derive(Clone)]
-pub struct NifAppender(UnboundedSender<Record>);
+pub struct NifAppender(UnboundedSender<Option<Record>>);
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
@@ -65,7 +65,7 @@ pub fn start_producer(
     compression_type: Atom,
     flush_settings: Term,
 ) -> ResourceArc<NifAppender> {
-    let (request_sender, request_receiver) = unbounded_channel::<Record>();
+    let (request_sender, request_receiver) = unbounded_channel::<Option<Record>>();
     let compression_type = atom_to_compression_type(compression_type);
     let flush_settings = new_flush_settings(flush_settings);
     let future = async move {
@@ -93,7 +93,10 @@ pub fn start_producer(
             let mut request_receiver = request_receiver;
             let mut appender = appender;
             while let Some(record) = request_receiver.recv().await {
-                _ = appender.append(record).unwrap()
+                match record {
+                    Some(record) => _ = appender.append(record).unwrap(),
+                    None => request_receiver.close(),
+                }
             }
         });
         producer.start().await
@@ -103,13 +106,20 @@ pub fn start_producer(
 }
 
 #[rustler::nif]
+fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
+    let producer = &producer.0;
+    producer.send(None).unwrap();
+    ok()
+}
+
+#[rustler::nif]
 fn append(producer: ResourceArc<NifAppender>, partition_key: String, raw_payload: String) -> Atom {
     let record = Record {
         partition_key,
         payload: hstreamdb::Payload::RawRecord(raw_payload.into_bytes()),
     };
     let producer = &producer.0;
-    producer.send(record).unwrap();
+    producer.send(Some(record)).unwrap();
     ok()
 }
 
