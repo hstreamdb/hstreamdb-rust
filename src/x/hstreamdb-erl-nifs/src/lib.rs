@@ -1,9 +1,10 @@
 use std::mem;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
+use once_cell::sync::OnceCell;
 use rustler::types::atom::{error, ok};
 use rustler::{resource, Atom, Encoder, Env, NifResult, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -28,13 +29,13 @@ rustler::init!(
     load = load
 );
 
+#[derive(Debug)]
 enum AppendResult {
-    Receiver(AppendResultType),
     RecordId(String),
     Error(String),
 }
 
-struct MutexAppendResult(Mutex<AppendResult>);
+struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult>);
 
 type AppendResultType = oneshot::Receiver<Result<String, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
@@ -42,7 +43,7 @@ pub struct NifAppender(UnboundedSender<Option<(Record, oneshot::Sender<AppendRes
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
-    resource!(MutexAppendResult, env);
+    resource!(AppendResultFuture, env);
     env_logger::init();
     true
 }
@@ -182,7 +183,7 @@ fn append(
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: String,
-) -> ResourceArc<MutexAppendResult> {
+) -> ResourceArc<AppendResultFuture> {
     let record = Record {
         partition_key,
         payload: hstreamdb::Payload::RawRecord(raw_payload.into_bytes()),
@@ -191,39 +192,34 @@ fn append(
     let (sender, receiver) = oneshot::channel();
     producer.send(Some((record, sender))).unwrap();
     let receiver = receiver.blocking_recv().unwrap();
-    ResourceArc::new(MutexAppendResult(Mutex::new(AppendResult::Receiver(
-        receiver,
-    ))))
+    ResourceArc::new(AppendResultFuture(
+        Mutex::new(Some(receiver)),
+        OnceCell::new(),
+    ))
 }
 
 #[rustler::nif]
-fn await_append_result(env: Env, x: ResourceArc<MutexAppendResult>) -> Term {
+fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
     use crate::AppendResult::*;
-    let x: &Mutex<_> = &x.0;
-    let mut x = x.lock().unwrap();
+    let result = &x.1;
 
-    if let Receiver(_) = *x {
-        let mut receiver = Error(
-            "INTERNAL ERROR: impossible happened, failed to await for append result".to_string(),
-        );
-        mem::swap(&mut (*x), &mut receiver);
-        let result = match receiver {
-            Receiver(receiver) => receiver.blocking_recv().unwrap(),
-            _ => panic!(),
-        };
-        let mut result = match result {
+    if result.get().is_none() {
+        let receiver: &Mutex<_> = &x.0;
+        let mut receiver: MutexGuard<Option<_>> = receiver.lock().unwrap();
+        let receiver = mem::take(&mut (*receiver));
+        let append_result: Result<String, Arc<_>> = receiver.unwrap().blocking_recv().unwrap();
+        let append_result = match append_result {
             Ok(record_id) => RecordId(record_id),
             Err(err) => Error(err.to_string()),
         };
-        mem::swap(&mut (*x), &mut result);
+        result.set(append_result).unwrap()
     }
 
-    let x = match &*x {
+    let result = match result.get().unwrap() {
         RecordId(record_id) => (ok(), record_id.to_string()),
         Error(err) => (error(), err.to_string()),
-        _ => panic!(),
     };
-    x.encode(env)
+    result.encode(env)
 }
 
 fn atom_to_compression_type(compression_type: Atom) -> CompressionType {
