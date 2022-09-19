@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::mem;
+use std::sync::Arc;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -14,6 +15,7 @@ use hstreamdb_pb::{
     HStreamRecordHeader, ListShardsRequest, Shard,
 };
 use prost::Message;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
@@ -21,12 +23,18 @@ use crate::channel_provider::Channels;
 use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
+type ResultVec = Vec<oneshot::Sender<Result<String, Arc<common::Error>>>>;
+
 #[derive(Debug)]
-pub(crate) struct Request(pub(crate) Record);
+pub(crate) struct Request(
+    pub(crate) Record,
+    pub(crate) oneshot::Sender<Result<String, Arc<common::Error>>>,
+);
 
 pub struct Producer {
     tasks: Vec<JoinHandle<()>>,
     shard_buffer: HashMap<ShardId, Vec<Record>>,
+    shard_buffer_result: HashMap<ShardId, ResultVec>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
     shard_urls: HashMap<ShardId, String>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
@@ -84,6 +92,7 @@ impl Producer {
         let producer = Producer {
             tasks: Vec::new(),
             shard_buffer: HashMap::new(),
+            shard_buffer_result: HashMap::new(),
             shard_buffer_state: HashMap::new(),
             shard_urls: HashMap::new(),
             request_receiver,
@@ -98,7 +107,7 @@ impl Producer {
     }
 
     pub async fn start(&mut self) {
-        while let Some(Request(record)) = self.request_receiver.recv().await {
+        while let Some(Request(record, result_sender)) = self.request_receiver.recv().await {
             let partition_key = record.partition_key.clone();
             match partition_key_to_shard_id(&self.shards, partition_key.clone()) {
                 Err(err) => {
@@ -130,8 +139,14 @@ impl Producer {
                                     buffer_state.modify(&record);
                                     self.shard_buffer_state.insert(shard_id, buffer_state);
                                     self.shard_buffer.insert(shard_id, vec![record]);
+                                    self.shard_buffer_result
+                                        .insert(shard_id, vec![result_sender]);
                                 }
                                 Some(buffer) => {
+                                    self.shard_buffer_result
+                                        .get_mut(&shard_id)
+                                        .unwrap()
+                                        .push(result_sender);
                                     let buffer_state =
                                         self.shard_buffer_state.get_mut(&shard_id).unwrap();
                                     buffer_state.modify(&record);
@@ -139,6 +154,10 @@ impl Producer {
                                     if buffer_state.check(&self.flush_settings) {
                                         let buffer =
                                             clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                                        let results = clear_shard_buffer(
+                                            &mut self.shard_buffer_result,
+                                            shard_id,
+                                        );
                                         self.shard_buffer_state.insert(shard_id, default());
                                         let task = tokio::spawn(flush_(
                                             self.channels.clone(),
@@ -147,6 +166,7 @@ impl Producer {
                                             shard_url,
                                             self.compression_type,
                                             buffer,
+                                            results,
                                         ));
                                         self.tasks.push(task);
                                     }
@@ -160,6 +180,7 @@ impl Producer {
 
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
+            let results = self.shard_buffer_result.get_mut(shard_id).unwrap();
             let shard_url = self.shard_urls.get(shard_id);
             let shard_url_is_none = shard_url.is_none();
             match lookup_shard(
@@ -184,6 +205,7 @@ impl Producer {
                         shard_url,
                         self.compression_type,
                         mem::take(buffer),
+                        mem::take(results),
                     ));
                     self.tasks.push(task);
                 }
@@ -206,13 +228,16 @@ async fn flush(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    results: ResultVec,
 ) -> Result<(), String> {
-    if !buffer.is_empty() {
+    if buffer.is_empty() {
+        Ok(())
+    } else {
         let channel = channels
             .channel_at(shard_url.clone())
             .await
             .map_err(|err| format!("producer connect error: url = {shard_url}, {err}"))?;
-        append(
+        match append(
             channel,
             stream_name,
             shard_id,
@@ -220,11 +245,26 @@ async fn flush(
             buffer.to_vec(),
         )
         .await
-        .map_err(|err| format!("producer append error: url = {shard_url}, {err}"))
-        .map(|x| log::debug!("append succeed: len = {}", x.len()))?;
-        Ok(())
-    } else {
-        Ok(())
+        {
+            Err(err) => {
+                let err = Arc::new(err);
+                for sender in results.into_iter() {
+                    sender.send(Err(err.clone())).unwrap_or_else(|err| {
+                        log::error!("return append result error: err = {}", err.unwrap_err())
+                    })
+                }
+                Err(format!("producer append error: url = {shard_url}, {err}"))
+            }
+            Ok(append_result) => {
+                log::debug!("append succeed: len = {}", append_result.len());
+                for (result, sender) in append_result.into_iter().zip(results) {
+                    sender.send(Ok(result)).unwrap_or_else(|err| {
+                        log::error!("return append result error: ok = {}", err.unwrap())
+                    })
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -235,6 +275,7 @@ async fn flush_(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    results: ResultVec,
 ) {
     flush(
         channels,
@@ -243,6 +284,7 @@ async fn flush_(
         shard_url,
         compression_type,
         buffer,
+        results,
     )
     .await
     .unwrap_or_else(|err| log::error!("{err}"))

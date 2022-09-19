@@ -46,23 +46,42 @@ async fn test_producer() {
         .await
         .unwrap();
 
-    let _ = tokio::spawn(async move {
-        let mut appender = appender;
-        for _ in 0..100 {
-            appender
-                .append(Record {
-                    partition_key: "".to_string(),
-                    payload: hstreamdb::common::Payload::RawRecord(
-                        rand_alphanumeric(20).as_bytes().to_vec(),
-                    ),
-                })
-                .unwrap();
-        }
-        drop(appender)
-    });
+    let mut join_handles = Vec::new();
+    for _ in 0..10 {
+        let appender = appender.clone();
+        let join_handle = tokio::spawn(async move {
+            let mut appender = appender;
+            let mut results = Vec::new();
+
+            for _ in 0..100 {
+                let result = appender
+                    .append(Record {
+                        partition_key: "".to_string(),
+                        payload: hstreamdb::common::Payload::RawRecord(
+                            rand_alphanumeric(20).as_bytes().to_vec(),
+                        ),
+                    })
+                    .unwrap();
+                results.push(result)
+            }
+
+            drop(appender);
+            results
+        });
+        join_handles.push(join_handle)
+    }
 
     let mut producer = producer;
-    producer.start().await;
+    let producer = producer.start();
+    drop(appender);
+    producer.await;
+
+    for join_handle in join_handles {
+        let join_handle = join_handle.await.unwrap();
+        for result in join_handle {
+            println!("{}", result.await.unwrap().unwrap())
+        }
+    }
 
     client
         .delete_stream(stream_name, false, true)
