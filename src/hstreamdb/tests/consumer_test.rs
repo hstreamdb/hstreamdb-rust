@@ -60,11 +60,13 @@ async fn test_consumer() {
         .await
         .unwrap();
 
-    let join_handle = tokio::spawn(async move {
-        let mut appender = appender;
-        let mut results = Vec::new();
+    let mut join_handles = Vec::new();
+    for _ in 0..10 {
+        let appender = appender.clone();
+        let join_handle = tokio::spawn(async move {
+            let mut appender = appender;
+            let mut results = Vec::new();
 
-        for _ in 0..10 {
             for _ in 0..100 {
                 let result = appender
                     .append(Record {
@@ -76,17 +78,23 @@ async fn test_consumer() {
                     .unwrap();
                 results.push(result)
             }
-        }
-        drop(appender);
-        results
-    });
+
+            drop(appender);
+            results
+        });
+        join_handles.push(join_handle)
+    }
 
     let mut producer = producer;
-    producer.start().await;
+    let producer = producer.start();
+    drop(appender);
+    producer.await;
 
-    let results = join_handle.await.unwrap();
-    for result in results {
-        println!("{}", result.await.unwrap().unwrap())
+    for join_handle in join_handles {
+        let join_handle = join_handle.await.unwrap();
+        for result in join_handle {
+            println!("{}", result.await.unwrap().unwrap())
+        }
     }
 
     let mut stream = client
