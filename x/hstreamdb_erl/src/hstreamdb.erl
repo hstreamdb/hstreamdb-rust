@@ -32,7 +32,7 @@ create_stream(ServerUrl, StreamName, ReplicationFactor, BacklogDuration, ShardCo
     CompressionType :: compression_type(),
     ProducerSettings :: proplists:proplist()
 ) ->
-    producer().
+    {ok, producer()} | {error, binary()}.
 start_producer(ServerUrl, StreamName, CompressionType, ProducerSettings) ->
     none.
 

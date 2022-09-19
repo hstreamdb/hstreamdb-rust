@@ -2,7 +2,7 @@ use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
 use rustler::types::atom::ok;
-use rustler::{resource, Atom, Env, NifResult, ResourceArc, Term};
+use rustler::{resource, Atom, Encoder, Env, NifResult, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::oneshot;
 
@@ -79,52 +79,72 @@ pub fn create_stream(
         shard_count,
     )
     .map(|()| ok().to_term(env))
-    .map_err(|x| rustler::Error::Term(Box::new(x.to_string())))
+    .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
 
-#[rustler::nif]
-pub fn start_producer(
+pub fn try_start_producer(
     url: String,
     stream_name: String,
     compression_type: Atom,
     settings: Term,
-) -> ResourceArc<NifAppender> {
+) -> hstreamdb::Result<ResourceArc<NifAppender>> {
+    let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) = unbounded_channel::<Option<Record>>();
     let compression_type = atom_to_compression_type(compression_type);
     let (concurrency_limit, flush_settings) = new_producer_settings(settings);
     let future = async move {
-        let mut client = Client::new(
-            url,
-            ChannelProviderSettings {
-                concurrency_limit: 1,
-            },
-        )
-        .await
-        .unwrap();
-        let (appender, mut producer) = client
-            .new_producer(
-                stream_name,
-                compression_type,
-                flush_settings,
-                ChannelProviderSettings { concurrency_limit },
+        let xs = async move {
+            let mut client = Client::new(
+                url,
+                ChannelProviderSettings {
+                    concurrency_limit: 1,
+                },
             )
-            .await
-            .unwrap();
+            .await?;
+            let (appender, mut producer) = client
+                .new_producer(
+                    stream_name,
+                    compression_type,
+                    flush_settings,
+                    ChannelProviderSettings { concurrency_limit },
+                )
+                .await?;
 
-        _ = tokio::spawn(async move {
-            let mut request_receiver = request_receiver;
-            let mut appender = appender;
-            while let Some(record) = request_receiver.recv().await {
-                match record {
-                    Some(record) => _ = appender.append(record).unwrap(),
-                    None => request_receiver.close(),
+            _ = tokio::spawn(async move {
+                let mut request_receiver = request_receiver;
+                let mut appender = appender;
+                while let Some(record) = request_receiver.recv().await {
+                    match record {
+                        Some(record) => _ = appender.append(record).unwrap(),
+                        None => request_receiver.close(),
+                    }
                 }
-            }
-        });
-        producer.start().await
+            });
+            _ = tokio::spawn(async move { producer.start().await });
+            Ok::<(), hstreamdb::Error>(())
+        };
+        let xs = xs.await;
+        sender.send(xs).unwrap()
     };
     _ = runtime::spawn(future);
-    ResourceArc::new(NifAppender(request_sender))
+
+    receiver
+        .blocking_recv()
+        .unwrap()
+        .map(|()| ResourceArc::new(NifAppender(request_sender)))
+}
+
+#[rustler::nif]
+pub fn start_producer<'a>(
+    env: Env<'a>,
+    url: String,
+    stream_name: String,
+    compression_type: Atom,
+    settings: Term,
+) -> NifResult<Term<'a>> {
+    try_start_producer(url, stream_name, compression_type, settings)
+        .map(|x| Encoder::encode(&(ok(), x), env))
+        .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
 
 #[rustler::nif]
