@@ -249,7 +249,10 @@ fn new_producer_settings(
                 .decode()
                 .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             if k == concurrency_limit() {
-                concurrency_limit_v = v.decode().ok()
+                concurrency_limit_v = Some(
+                    v.decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                );
             } else if k == len() {
                 len_v = v
                     .decode()
