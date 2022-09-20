@@ -121,7 +121,7 @@ pub fn try_start_producer(
                 },
             )
             .await?;
-            let (appender, mut producer) = client
+            let (appender, producer) = client
                 .new_producer(
                     stream_name,
                     compression_type,
