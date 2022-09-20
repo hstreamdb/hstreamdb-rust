@@ -68,7 +68,7 @@ impl Channels {
 }
 
 pub struct ChannelProviderSettings {
-    pub concurrency_limit: usize,
+    pub concurrency_limit: Option<usize>,
 }
 
 impl ChannelProvider {
@@ -86,13 +86,12 @@ impl ChannelProvider {
                     log::warn!("create endpoint error: url = {url}, {err}");
                     continue;
                 }
-                Ok(endpoint) => {
+                Ok(mut endpoint) => {
                     let uri = endpoint.uri().clone();
-                    match endpoint
-                        .concurrency_limit(settings.concurrency_limit)
-                        .connect()
-                        .await
-                    {
+                    if let Some(concurrency_limit) = settings.concurrency_limit {
+                        endpoint = endpoint.concurrency_limit(concurrency_limit)
+                    }
+                    match endpoint.connect().await {
                         Err(err) => {
                             log::warn!("connect to endpoint error: uri = {uri}, {err}");
                             continue;

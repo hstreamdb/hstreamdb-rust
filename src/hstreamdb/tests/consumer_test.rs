@@ -16,7 +16,7 @@ async fn test_consumer() {
     let mut client = Client::new(
         addr,
         ChannelProviderSettings {
-            concurrency_limit: 8,
+            concurrency_limit: Some(8),
         },
     )
     .await
@@ -54,7 +54,7 @@ async fn test_consumer() {
                 size: usize::MAX,
             },
             ChannelProviderSettings {
-                concurrency_limit: 8,
+                concurrency_limit: Some(8),
             },
         )
         .await

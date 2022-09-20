@@ -62,7 +62,7 @@ pub fn try_create_stream(
             let mut client = Client::new(
                 url,
                 ChannelProviderSettings {
-                    concurrency_limit: 1,
+                    concurrency_limit: None,
                 },
             )
             .await?;
@@ -117,7 +117,7 @@ pub fn try_start_producer(
             let mut client = Client::new(
                 url,
                 ChannelProviderSettings {
-                    concurrency_limit: 1,
+                    concurrency_limit: None,
                 },
             )
             .await?;
@@ -234,7 +234,7 @@ fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
 
 fn new_producer_settings(
     proplists: Term,
-) -> hstreamdb::Result<(CompressionType, usize, FlushSettings)> {
+) -> hstreamdb::Result<(CompressionType, Option<usize>, FlushSettings)> {
     let proplists = proplists
         .into_list_iterator()
         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
@@ -249,7 +249,10 @@ fn new_producer_settings(
                 .decode()
                 .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
             if k == concurrency_limit() {
-                concurrency_limit_v = v.decode().ok()
+                concurrency_limit_v = Some(
+                    v.decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                );
             } else if k == len() {
                 len_v = v
                     .decode()
@@ -278,7 +281,7 @@ fn new_producer_settings(
 
     Ok((
         compression_type_v,
-        concurrency_limit_v.unwrap_or(16),
+        concurrency_limit_v,
         FlushSettings {
             len: len_v,
             size: size_v,

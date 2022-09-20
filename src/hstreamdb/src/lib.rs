@@ -15,7 +15,7 @@
 //!     let mut client = Client::new(
 //!         env::var("TEST_SERVER_ADDR")?,
 //!         ChannelProviderSettings {
-//!             concurrency_limit: 8,
+//!             concurrency_limit: Some(8),
 //!         },
 //!     )
 //!     .await?;
@@ -42,7 +42,7 @@
 //!                 size: 4000 * 20,
 //!             },
 //!             ChannelProviderSettings {
-//!                 concurrency_limit: 8,
+//!                 concurrency_limit: Some(8),
 //!             },
 //!         )
 //!         .await?;
@@ -91,7 +91,7 @@
 //!     let mut client = Client::new(
 //!         env::var("TEST_SERVER_ADDR")?,
 //!         ChannelProviderSettings {
-//!             concurrency_limit: 8,
+//!             concurrency_limit: Some(8),
 //!         },
 //!     )
 //!     .await?;
