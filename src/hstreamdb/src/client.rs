@@ -233,7 +233,7 @@ mod tests {
         let mut client = Client::new(
             addr,
             ChannelProviderSettings {
-                concurrency_limit: 8,
+                concurrency_limit: None,
             },
         )
         .await
@@ -273,7 +273,7 @@ mod tests {
         let mut client = Client::new(
             addr,
             ChannelProviderSettings {
-                concurrency_limit: 8,
+                concurrency_limit: None,
             },
         )
         .await
