@@ -85,7 +85,6 @@ async fn test_consumer() {
         join_handles.push(join_handle)
     }
 
-    let mut producer = producer;
     let producer = producer.start();
     drop(appender);
     producer.await;

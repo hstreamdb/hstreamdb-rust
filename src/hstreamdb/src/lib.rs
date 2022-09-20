@@ -33,7 +33,7 @@
 //!     println!("{:?}", client.list_streams().await?);
 //!
 //!     // `Appender` is cheap to clone
-//!     let (appender, mut producer) = client
+//!     let (appender, producer) = client
 //!         .new_producer(
 //!             stream_name.to_string(),
 //!             hstreamdb_pb::CompressionType::Zstd,

@@ -106,7 +106,7 @@ impl Producer {
         Ok(producer)
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(mut self) {
         while let Some(Request(record, result_sender)) = self.request_receiver.recv().await {
             let partition_key = record.partition_key.clone();
             match partition_key_to_shard_id(&self.shards, partition_key.clone()) {

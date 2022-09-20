@@ -71,7 +71,6 @@ async fn test_producer() {
         join_handles.push(join_handle)
     }
 
-    let mut producer = producer;
     let producer = producer.start();
     drop(appender);
     producer.await;
