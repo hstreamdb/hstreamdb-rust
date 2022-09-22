@@ -175,6 +175,7 @@ impl Producer {
             select! {
                 flush_deadline = self.deadline_request_receiver.recv() => {
                     let shard_id = flush_deadline.unwrap();
+                    self.shard_buffer_timer.remove(&shard_id);
                     let shard_url = self.shard_urls.get(&shard_id);
                     let shard_url_is_none = shard_url.is_none();
                     match lookup_shard(
@@ -286,7 +287,7 @@ impl Producer {
                                                     }
                                                 }
                                                 Some(buffer) => {
-                                                    self.shard_buffer_timer.get_mut(&shard_id).unwrap().abort();
+                                                    if let Some(x) = self.shard_buffer_timer.remove(&shard_id) { x.abort() }
                                                     self.shard_buffer_result
                                                         .get_mut(&shard_id)
                                                         .unwrap()
