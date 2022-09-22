@@ -49,10 +49,7 @@ async fn test_consumer() {
         .new_producer(
             stream_name.clone(),
             hstreamdb_pb::CompressionType::Zstd,
-            FlushSettings {
-                len: 10,
-                size: usize::MAX,
-            },
+            FlushSettings::builder().set_max_batch_len(10).build(),
             ChannelProviderSettings {
                 concurrency_limit: Some(8),
             },
