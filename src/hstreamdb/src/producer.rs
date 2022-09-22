@@ -16,9 +16,9 @@ use hstreamdb_pb::{
     HStreamRecordHeader, ListShardsRequest, Shard,
 };
 use prost::Message;
+use tokio::select;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::{runtime, select};
 use tonic::transport::Channel;
 
 use crate::channel_provider::Channels;
@@ -173,16 +173,16 @@ impl Producer {
     pub async fn start(mut self) {
         loop {
             select! {
-                flush_deadline = self.deadline_request_receiver.recv() =>
-                    self.handle_flush_request(runtime::Handle::current(), flush_deadline),
+                request = self.deadline_request_receiver.recv() =>
+                    self.handle_flush_request(request).await,
 
                 request = self.request_receiver.recv() => {
                     match request {
                         None => {
                             break;
                         }
-                        Some(Request(record, result_sender)) =>
-                            self.handle_append_request(runtime::Handle::current(), record, result_sender)
+                        Some(request) =>
+                            self.handle_append_request(request).await
                     }
                 }
             };
@@ -234,21 +234,20 @@ impl Producer {
         }
     }
 
-    fn handle_flush_request(&mut self, rt: runtime::Handle, flush_deadline: Option<ShardId>) {
+    async fn handle_flush_request(&mut self, request: Option<ShardId>) {
         {
-            let shard_id = flush_deadline.unwrap();
+            let shard_id = request.unwrap();
             self.shard_buffer_timer.remove(&shard_id);
             let shard_url = self.shard_urls.get(&shard_id);
             let shard_url_is_none = shard_url.is_none();
-            match rt.block_on(async {
-                lookup_shard(
-                    &mut self.channels.channel().await,
-                    &self.url_scheme,
-                    shard_id,
-                    shard_url,
-                )
-                .await
-            }) {
+            match lookup_shard(
+                &mut self.channels.channel().await,
+                &self.url_scheme,
+                shard_id,
+                shard_url,
+            )
+            .await
+            {
                 Err(err) => {
                     log::error!("lookup shard error: shard_id = {shard_id}, {err}")
                 }
@@ -256,7 +255,6 @@ impl Producer {
                     if shard_url_is_none {
                         self.shard_urls.insert(shard_id, shard_url.clone());
                     };
-                    let shard_id = flush_deadline.unwrap();
                     let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
                     let results = clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
                     self.shard_buffer_state.insert(shard_id, default());
@@ -276,12 +274,8 @@ impl Producer {
         }
     }
 
-    fn handle_append_request(
-        &mut self,
-        rt: runtime::Handle,
-        record: Record,
-        result_sender: oneshot::Sender<Result<String, Arc<common::Error>>>,
-    ) {
+    async fn handle_append_request(&mut self, request: Request) {
+        let Request(record, result_sender) = request;
         let partition_key = record.partition_key.clone();
         match partition_key_to_shard_id(&self.shards, partition_key.clone()) {
             Err(err) => {
@@ -292,15 +286,14 @@ impl Producer {
             Ok(shard_id) => {
                 let shard_url = self.shard_urls.get(&shard_id);
                 let shard_url_is_none = shard_url.is_none();
-                match rt.block_on(async {
-                    lookup_shard(
-                        &mut self.channels.channel().await,
-                        &self.url_scheme,
-                        shard_id,
-                        shard_url,
-                    )
-                    .await
-                }) {
+                match lookup_shard(
+                    &mut self.channels.channel().await,
+                    &self.url_scheme,
+                    shard_id,
+                    shard_url,
+                )
+                .await
+                {
                     Err(err) => {
                         log::error!("lookup shard error: shard_id = {shard_id}, {err}")
                     }
@@ -365,7 +358,7 @@ impl Producer {
                                     let results =
                                         clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
                                     self.shard_buffer_state.insert(shard_id, default());
-                                    let task = rt.spawn(flush_(
+                                    let task = tokio::spawn(flush_(
                                         self.channels.clone(),
                                         self.stream_name.clone(),
                                         shard_id,
