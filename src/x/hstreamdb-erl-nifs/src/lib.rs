@@ -15,7 +15,8 @@ mod runtime;
 
 rustler::atoms! {
     compression_type, none, gzip, zstd,
-    concurrency_limit, len, size
+    concurrency_limit,
+    max_batch_len, max_batch_size, batch_deadline
 }
 
 rustler::init!(
@@ -239,8 +240,9 @@ fn new_producer_settings(
         .into_list_iterator()
         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
     let mut concurrency_limit_v = None;
-    let mut len_v = usize::MAX;
-    let mut size_v = usize::MAX;
+    let mut len = None;
+    let mut size = None;
+    let mut deadline = None;
     let mut compression_type_v: Atom = none();
 
     for x in proplists {
@@ -253,14 +255,21 @@ fn new_producer_settings(
                     v.decode()
                         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
                 );
-            } else if k == len() {
-                len_v = v
-                    .decode()
-                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
-            } else if k == size() {
-                size_v = v
-                    .decode()
-                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+            } else if k == max_batch_len() {
+                len = Some(
+                    v.decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                );
+            } else if k == max_batch_size() {
+                size = Some(
+                    v.decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                );
+            } else if k == batch_deadline() {
+                deadline = Some(
+                    v.decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                )
             } else if k == compression_type() {
                 compression_type_v = v
                     .decode()
@@ -269,22 +278,25 @@ fn new_producer_settings(
         }
     }
 
-    if len_v == usize::MAX && size_v == usize::MAX {
-        len_v = 0;
-        size_v = 0;
-    }
+    let flush_settings = {
+        let mut flush_settings = FlushSettings::builder();
+        if let Some(len) = len {
+            flush_settings = flush_settings.set_max_batch_len(len)
+        }
+        if let Some(size) = size {
+            flush_settings = flush_settings.set_max_batch_size(size)
+        }
+        if let Some(deadline) = deadline {
+            flush_settings = flush_settings.set_batch_deadline(deadline)
+        }
+        flush_settings.build()
+    };
+
     let compression_type_v = atom_to_compression_type(compression_type_v).ok_or_else(|| {
         hstreamdb::Error::BadArgument(format!(
             "no match for compression type `{compression_type_v:?}`"
         ))
     })?;
 
-    Ok((
-        compression_type_v,
-        concurrency_limit_v,
-        FlushSettings {
-            len: len_v,
-            size: size_v,
-        },
-    ))
+    Ok((compression_type_v, concurrency_limit_v, flush_settings))
 }

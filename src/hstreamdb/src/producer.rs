@@ -53,8 +53,62 @@ struct BufferState {
 }
 
 pub struct FlushSettings {
-    pub len: usize,
-    pub size: usize,
+    len: usize,
+    size: usize,
+    deadline: Option<usize>,
+}
+
+impl FlushSettings {
+    pub fn builder() -> FlushSettingsBuilder {
+        default()
+    }
+}
+
+#[derive(Default)]
+pub struct FlushSettingsBuilder {
+    len: Option<usize>,
+    size: Option<usize>,
+    deadline: Option<usize>,
+}
+
+impl FlushSettingsBuilder {
+    pub fn build(self) -> FlushSettings {
+        let deadline = self.deadline;
+
+        let (len, size) = match (self.len, self.size) {
+            (None, None) => (0, 0),
+            (None, Some(size)) => (usize::MAX, size),
+            (Some(len), None) => (len, usize::MAX),
+            (Some(len), Some(size)) => (len, size),
+        };
+
+        FlushSettings {
+            len,
+            size,
+            deadline,
+        }
+    }
+
+    pub fn set_max_batch_len(self, len: usize) -> Self {
+        Self {
+            len: Some(len),
+            ..self
+        }
+    }
+
+    pub fn set_max_batch_size(self, size: usize) -> Self {
+        Self {
+            size: Some(size),
+            ..self
+        }
+    }
+
+    pub fn set_batch_deadline(self, deadline: usize) -> Self {
+        Self {
+            deadline: Some(deadline),
+            ..self
+        }
+    }
 }
 
 impl BufferState {
