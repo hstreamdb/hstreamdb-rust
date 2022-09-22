@@ -173,52 +173,16 @@ impl Producer {
     pub async fn start(mut self) {
         loop {
             select! {
-                flush_deadline = self.deadline_request_receiver.recv() => {
-                    let shard_id = flush_deadline.unwrap();
-                    self.shard_buffer_timer.remove(&shard_id);
-                    let shard_url = self.shard_urls.get(&shard_id);
-                    let shard_url_is_none = shard_url.is_none();
-                    match lookup_shard(
-                        &mut self.channels.channel().await,
-                        &self.url_scheme,
-                        shard_id,
-                        shard_url,
-                    )
-                    .await
-                    {
-                        Err(err) => {
-                            log::error!("lookup shard error: shard_id = {shard_id}, {err}")
-                        }
-                        Ok(shard_url) => {
-                            if shard_url_is_none {
-                                self.shard_urls.insert(shard_id, shard_url.clone());
-                            };
-                            let shard_id = flush_deadline.unwrap();
-                            let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                            let results = clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
-                            self.shard_buffer_state.insert(shard_id, default());
-                            let task = tokio::spawn(flush_(
-                                self.channels.clone(),
-                                self.stream_name.clone(),
-                                shard_id,
-                                shard_url,
-                                self.compression_type,
-                                buffer,
-                                results,
-                            ));
-                            self.tasks.push(task);
-                            self.shard_buffer.remove(&shard_id);
-                        }
-                    }
-                }
-
+                flush_deadline = self.deadline_request_receiver.recv() =>
+                    self.handle_flush_request(runtime::Handle::current(), flush_deadline),
 
                 request = self.request_receiver.recv() => {
                     match request {
                         None => {
                             break;
                         }
-                        Some(Request(record, result_sender)) => self.handle_append_request(runtime::Handle::current(), record, result_sender)
+                        Some(Request(record, result_sender)) =>
+                            self.handle_append_request(runtime::Handle::current(), record, result_sender)
                     }
                 }
             };
@@ -267,6 +231,48 @@ impl Producer {
             task.await.unwrap_or_else(|err| {
                 log::error!("await for task in stopping producer failed: {err}")
             })
+        }
+    }
+
+    fn handle_flush_request(&mut self, rt: runtime::Handle, flush_deadline: Option<ShardId>) {
+        {
+            let shard_id = flush_deadline.unwrap();
+            self.shard_buffer_timer.remove(&shard_id);
+            let shard_url = self.shard_urls.get(&shard_id);
+            let shard_url_is_none = shard_url.is_none();
+            match rt.block_on(async {
+                lookup_shard(
+                    &mut self.channels.channel().await,
+                    &self.url_scheme,
+                    shard_id,
+                    shard_url,
+                )
+                .await
+            }) {
+                Err(err) => {
+                    log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+                }
+                Ok(shard_url) => {
+                    if shard_url_is_none {
+                        self.shard_urls.insert(shard_id, shard_url.clone());
+                    };
+                    let shard_id = flush_deadline.unwrap();
+                    let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                    let results = clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
+                    self.shard_buffer_state.insert(shard_id, default());
+                    let task = tokio::spawn(flush_(
+                        self.channels.clone(),
+                        self.stream_name.clone(),
+                        shard_id,
+                        shard_url,
+                        self.compression_type,
+                        buffer,
+                        results,
+                    ));
+                    self.tasks.push(task);
+                    self.shard_buffer.remove(&shard_id);
+                }
+            }
         }
     }
 

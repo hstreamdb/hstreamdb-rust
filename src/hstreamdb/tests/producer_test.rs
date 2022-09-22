@@ -61,6 +61,7 @@ async fn test_producer() {
                             rand_alphanumeric(20).as_bytes().to_vec(),
                         ),
                     })
+                    .map_err(|x| x.to_string())
                     .unwrap();
                 results.push(result)
             }
