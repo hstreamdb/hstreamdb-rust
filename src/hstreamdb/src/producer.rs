@@ -15,6 +15,7 @@ use hstreamdb_pb::{
     HStreamRecordHeader, ListShardsRequest, Shard,
 };
 use prost::Message;
+use tokio::select;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
@@ -161,98 +162,109 @@ impl Producer {
     }
 
     pub async fn start(mut self) {
-        while let Some(Request(record, result_sender)) = self.request_receiver.recv().await {
-            let partition_key = record.partition_key.clone();
-            match partition_key_to_shard_id(&self.shards, partition_key.clone()) {
-                Err(err) => {
-                    log::error!(
-                        "get shard id by partition key error: partition_key = {partition_key}, {err}"
-                    )
-                }
-                Ok(shard_id) => {
-                    let shard_url = self.shard_urls.get(&shard_id);
-                    let shard_url_is_none = shard_url.is_none();
-                    match lookup_shard(
-                        &mut self.channels.channel().await,
-                        &self.url_scheme,
-                        shard_id,
-                        shard_url,
-                    )
-                    .await
-                    {
-                        Err(err) => {
-                            log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+        loop {
+            select! {
+                request = self.request_receiver.recv() => {
+                    match request {
+                        None => {
+                            break;
                         }
-                        Ok(shard_url) => {
-                            if shard_url_is_none {
-                                self.shard_urls.insert(shard_id, shard_url.clone());
-                            };
-                            match self.shard_buffer.get_mut(&shard_id) {
-                                None => {
-                                    let mut buffer_state: BufferState = default();
-                                    buffer_state.modify(&record);
-                                    self.shard_buffer_state.insert(shard_id, buffer_state);
-                                    self.shard_buffer.insert(shard_id, vec![record]);
-                                    self.shard_buffer_result
-                                        .insert(shard_id, vec![result_sender]);
-
-                                    let buffer_state =
-                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
-                                    if buffer_state.check(&self.flush_settings) {
-                                        let buffer =
-                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                                        let results = clear_shard_buffer(
-                                            &mut self.shard_buffer_result,
-                                            shard_id,
-                                        );
-                                        self.shard_buffer_state.insert(shard_id, default());
-                                        let task = tokio::spawn(flush_(
-                                            self.channels.clone(),
-                                            self.stream_name.clone(),
-                                            shard_id,
-                                            shard_url,
-                                            self.compression_type,
-                                            buffer,
-                                            results,
-                                        ));
-                                        self.tasks.push(task);
-                                    }
+                        Some(Request(record, result_sender)) => {
+                            let partition_key = record.partition_key.clone();
+                            match partition_key_to_shard_id(&self.shards, partition_key.clone()) {
+                                Err(err) => {
+                                    log::error!(
+                                        "get shard id by partition key error: partition_key = {partition_key}, {err}"
+                                    )
                                 }
-                                Some(buffer) => {
-                                    self.shard_buffer_result
-                                        .get_mut(&shard_id)
-                                        .unwrap()
-                                        .push(result_sender);
-                                    let buffer_state =
-                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
-                                    buffer_state.modify(&record);
-                                    buffer.push(record);
+                                Ok(shard_id) => {
+                                    let shard_url = self.shard_urls.get(&shard_id);
+                                    let shard_url_is_none = shard_url.is_none();
+                                    match lookup_shard(
+                                        &mut self.channels.channel().await,
+                                        &self.url_scheme,
+                                        shard_id,
+                                        shard_url,
+                                    )
+                                    .await
+                                    {
+                                        Err(err) => {
+                                            log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+                                        }
+                                        Ok(shard_url) => {
+                                            if shard_url_is_none {
+                                                self.shard_urls.insert(shard_id, shard_url.clone());
+                                            };
+                                            match self.shard_buffer.get_mut(&shard_id) {
+                                                None => {
+                                                    let mut buffer_state: BufferState = default();
+                                                    buffer_state.modify(&record);
+                                                    self.shard_buffer_state.insert(shard_id, buffer_state);
+                                                    self.shard_buffer.insert(shard_id, vec![record]);
+                                                    self.shard_buffer_result
+                                                        .insert(shard_id, vec![result_sender]);
 
-                                    if buffer_state.check(&self.flush_settings) {
-                                        let buffer =
-                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                                        let results = clear_shard_buffer(
-                                            &mut self.shard_buffer_result,
-                                            shard_id,
-                                        );
-                                        self.shard_buffer_state.insert(shard_id, default());
-                                        let task = tokio::spawn(flush_(
-                                            self.channels.clone(),
-                                            self.stream_name.clone(),
-                                            shard_id,
-                                            shard_url,
-                                            self.compression_type,
-                                            buffer,
-                                            results,
-                                        ));
-                                        self.tasks.push(task);
+                                                    let buffer_state =
+                                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                                                    if buffer_state.check(&self.flush_settings) {
+                                                        let buffer =
+                                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                                                        let results = clear_shard_buffer(
+                                                            &mut self.shard_buffer_result,
+                                                            shard_id,
+                                                        );
+                                                        self.shard_buffer_state.insert(shard_id, default());
+                                                        let task = tokio::spawn(flush_(
+                                                            self.channels.clone(),
+                                                            self.stream_name.clone(),
+                                                            shard_id,
+                                                            shard_url,
+                                                            self.compression_type,
+                                                            buffer,
+                                                            results,
+                                                        ));
+                                                        self.tasks.push(task);
+                                                    }
+                                                }
+                                                Some(buffer) => {
+                                                    self.shard_buffer_result
+                                                        .get_mut(&shard_id)
+                                                        .unwrap()
+                                                        .push(result_sender);
+                                                    let buffer_state =
+                                                        self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                                                    buffer_state.modify(&record);
+                                                    buffer.push(record);
+
+                                                    if buffer_state.check(&self.flush_settings) {
+                                                        let buffer =
+                                                            clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                                                        let results = clear_shard_buffer(
+                                                            &mut self.shard_buffer_result,
+                                                            shard_id,
+                                                        );
+                                                        self.shard_buffer_state.insert(shard_id, default());
+                                                        let task = tokio::spawn(flush_(
+                                                            self.channels.clone(),
+                                                            self.stream_name.clone(),
+                                                            shard_id,
+                                                            shard_url,
+                                                            self.compression_type,
+                                                            buffer,
+                                                            results,
+                                                        ));
+                                                        self.tasks.push(task);
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
+            };
         }
 
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
@@ -466,3 +478,5 @@ impl Display for SendError {
 }
 
 impl Error for SendError {}
+
+fn fmt() {}
