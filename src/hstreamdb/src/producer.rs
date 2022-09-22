@@ -5,6 +5,7 @@ use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::mem;
 use std::sync::Arc;
+use std::time::Duration;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -37,8 +38,11 @@ pub struct Producer {
     shard_buffer: HashMap<ShardId, Vec<Record>>,
     shard_buffer_result: HashMap<ShardId, ResultVec>,
     shard_buffer_state: HashMap<ShardId, BufferState>,
+    shard_buffer_timer: HashMap<ShardId, JoinHandle<()>>,
     shard_urls: HashMap<ShardId, String>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
+    deadline_request_sender: tokio::sync::mpsc::UnboundedSender<ShardId>,
+    deadline_request_receiver: tokio::sync::mpsc::UnboundedReceiver<ShardId>,
     channels: Channels,
     url_scheme: String,
     stream_name: String,
@@ -144,13 +148,18 @@ impl Producer {
             .await?
             .into_inner()
             .shards;
+        let (deadline_request_sender, deadline_request_receiver) =
+            tokio::sync::mpsc::unbounded_channel();
         let producer = Producer {
             tasks: Vec::new(),
             shard_buffer: HashMap::new(),
             shard_buffer_result: HashMap::new(),
             shard_buffer_state: HashMap::new(),
+            shard_buffer_timer: HashMap::new(),
             shard_urls: HashMap::new(),
             request_receiver,
+            deadline_request_sender,
+            deadline_request_receiver,
             channels,
             url_scheme,
             stream_name,
@@ -164,6 +173,45 @@ impl Producer {
     pub async fn start(mut self) {
         loop {
             select! {
+                flush_deadline = self.deadline_request_receiver.recv() => {
+                    let shard_id = flush_deadline.unwrap();
+                    let shard_url = self.shard_urls.get(&shard_id);
+                    let shard_url_is_none = shard_url.is_none();
+                    match lookup_shard(
+                        &mut self.channels.channel().await,
+                        &self.url_scheme,
+                        shard_id,
+                        shard_url,
+                    )
+                    .await
+                    {
+                        Err(err) => {
+                            log::error!("lookup shard error: shard_id = {shard_id}, {err}")
+                        }
+                        Ok(shard_url) => {
+                            if shard_url_is_none {
+                                self.shard_urls.insert(shard_id, shard_url.clone());
+                            };
+                            let shard_id = flush_deadline.unwrap();
+                            let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
+                            let results = clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
+                            self.shard_buffer_state.insert(shard_id, default());
+                            let task = tokio::spawn(flush_(
+                                self.channels.clone(),
+                                self.stream_name.clone(),
+                                shard_id,
+                                shard_url,
+                                self.compression_type,
+                                buffer,
+                                results,
+                            ));
+                            self.tasks.push(task);
+                            self.shard_buffer.remove(&shard_id);
+                        }
+                    }
+                }
+
+
                 request = self.request_receiver.recv() => {
                     match request {
                         None => {
@@ -224,9 +272,21 @@ impl Producer {
                                                             results,
                                                         ));
                                                         self.tasks.push(task);
+                                                        self.shard_buffer.remove(&shard_id);
+                                                    } else if let Some(deadline) = self.flush_settings.deadline {
+                                                        let sender = self.deadline_request_sender.clone();
+                                                        let timer = tokio::spawn(async move {
+                                                            tokio::time::sleep(Duration::from_millis(
+                                                                deadline as _,
+                                                            ))
+                                                            .await;
+                                                            sender.send(shard_id).unwrap();
+                                                        });
+                                                        self.shard_buffer_timer.insert(shard_id, timer);
                                                     }
                                                 }
                                                 Some(buffer) => {
+                                                    self.shard_buffer_timer.get_mut(&shard_id).unwrap().abort();
                                                     self.shard_buffer_result
                                                         .get_mut(&shard_id)
                                                         .unwrap()
@@ -254,6 +314,7 @@ impl Producer {
                                                             results,
                                                         ));
                                                         self.tasks.push(task);
+                                                        self.shard_buffer.remove(&shard_id);
                                                     }
                                                 }
                                             }
@@ -267,6 +328,10 @@ impl Producer {
             };
         }
 
+        self.shard_buffer_timer
+            .iter()
+            .map(|(_, timer)| timer.abort())
+            .for_each(drop);
         let mut shard_buffer = mem::take(&mut self.shard_buffer);
         for (shard_id, buffer) in shard_buffer.iter_mut() {
             let results = self.shard_buffer_result.get_mut(shard_id).unwrap();
@@ -478,5 +543,3 @@ impl Display for SendError {
 }
 
 impl Error for SendError {}
-
-fn fmt() {}
