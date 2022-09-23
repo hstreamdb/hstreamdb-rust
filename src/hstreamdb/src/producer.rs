@@ -23,6 +23,7 @@ use tonic::transport::Channel;
 
 use crate::channel_provider::Channels;
 use crate::common::{self, PartitionKey, Record, ShardId};
+use crate::flow_controller::FlowControllerClient;
 use crate::utils::{self, clear_shard_buffer, lookup_shard, partition_key_to_shard_id};
 
 type ResultVec = Vec<oneshot::Sender<Result<String, Arc<common::Error>>>>;
@@ -44,6 +45,7 @@ pub struct Producer {
     deadline_request_sender: tokio::sync::mpsc::UnboundedSender<ShardId>,
     deadline_request_receiver: tokio::sync::mpsc::UnboundedReceiver<ShardId>,
     channels: Channels,
+    flow_controller: Option<FlowControllerClient>,
     url_scheme: String,
     stream_name: String,
     compression_type: CompressionType,
@@ -136,6 +138,7 @@ impl Producer {
         url_scheme: String,
         request_receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
         stream_name: String,
+        flow_controller: Option<FlowControllerClient>,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
     ) -> common::Result<Self> {
@@ -161,6 +164,7 @@ impl Producer {
             deadline_request_sender,
             deadline_request_receiver,
             channels,
+            flow_controller,
             url_scheme,
             stream_name,
             compression_type,
@@ -173,6 +177,8 @@ impl Producer {
     pub async fn start(mut self) {
         loop {
             select! {
+                biased;
+
                 request = self.deadline_request_receiver.recv() =>
                     self.handle_flush_request(request).await,
 
@@ -212,15 +218,28 @@ impl Producer {
                     if shard_url_is_none {
                         self.shard_urls.insert(*shard_id, shard_url.clone());
                     };
-                    let task = tokio::spawn(flush_(
+
+                    let buffer = mem::take(buffer);
+                    let buffer_size = get_buffer_size(&buffer);
+                    let release = self
+                        .flow_controller
+                        .clone()
+                        .map(|x| async move { x.release(buffer_size).await });
+                    let task = flush_(
                         self.channels.clone(),
                         self.stream_name.clone(),
                         *shard_id,
                         shard_url,
                         self.compression_type,
-                        mem::take(buffer),
+                        buffer,
                         mem::take(results),
-                    ));
+                    );
+                    let task = tokio::spawn(async move {
+                        task.await;
+                        if let Some(release) = release {
+                            release.await
+                        }
+                    });
                     self.tasks.push(task);
                 }
             }
@@ -258,7 +277,13 @@ impl Producer {
                     let buffer = clear_shard_buffer(&mut self.shard_buffer, shard_id);
                     let results = clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
                     self.shard_buffer_state.insert(shard_id, default());
-                    let task = tokio::spawn(flush_(
+
+                    let buffer_size = get_buffer_size(&buffer);
+                    let release = self
+                        .flow_controller
+                        .clone()
+                        .map(|x| async move { x.release(buffer_size).await });
+                    let task = flush_(
                         self.channels.clone(),
                         self.stream_name.clone(),
                         shard_id,
@@ -266,7 +291,13 @@ impl Producer {
                         self.compression_type,
                         buffer,
                         results,
-                    ));
+                    );
+                    let task = tokio::spawn(async move {
+                        task.await;
+                        if let Some(release) = release {
+                            release.await
+                        }
+                    });
                     self.tasks.push(task);
                     self.shard_buffer.remove(&shard_id);
                 }
@@ -318,7 +349,13 @@ impl Producer {
                                     let results =
                                         clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
                                     self.shard_buffer_state.insert(shard_id, default());
-                                    let task = tokio::spawn(flush_(
+
+                                    let buffer_size = get_buffer_size(&buffer);
+                                    let release = self
+                                        .flow_controller
+                                        .clone()
+                                        .map(|x| async move { x.release(buffer_size).await });
+                                    let task = flush_(
                                         self.channels.clone(),
                                         self.stream_name.clone(),
                                         shard_id,
@@ -326,7 +363,13 @@ impl Producer {
                                         self.compression_type,
                                         buffer,
                                         results,
-                                    ));
+                                    );
+                                    let task = tokio::spawn(async move {
+                                        task.await;
+                                        if let Some(release) = release {
+                                            release.await
+                                        }
+                                    });
                                     self.tasks.push(task);
                                     self.shard_buffer.remove(&shard_id);
                                 } else if let Some(deadline) = self.flush_settings.deadline {
@@ -358,7 +401,13 @@ impl Producer {
                                     let results =
                                         clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
                                     self.shard_buffer_state.insert(shard_id, default());
-                                    let task = tokio::spawn(flush_(
+
+                                    let buffer_size = get_buffer_size(&buffer);
+                                    let release = self
+                                        .flow_controller
+                                        .clone()
+                                        .map(|x| async move { x.release(buffer_size).await });
+                                    let task = flush_(
                                         self.channels.clone(),
                                         self.stream_name.clone(),
                                         shard_id,
@@ -366,7 +415,13 @@ impl Producer {
                                         self.compression_type,
                                         buffer,
                                         results,
-                                    ));
+                                    );
+                                    let task = tokio::spawn(async move {
+                                        task.await;
+                                        if let Some(release) = release {
+                                            release.await
+                                        }
+                                    });
                                     self.tasks.push(task);
                                     self.shard_buffer.remove(&shard_id);
                                 }
@@ -547,3 +602,7 @@ impl Display for SendError {
 }
 
 impl Error for SendError {}
+
+fn get_buffer_size(buffer: &[Record]) -> usize {
+    buffer.iter().fold(0, |acc, x| acc + x.encoded_len())
+}

@@ -11,7 +11,7 @@ use url::Url;
 use crate::appender::Appender;
 use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
 use crate::producer::{FlushSettings, Producer};
-use crate::{common, format_url, producer};
+use crate::{common, flow_controller, format_url, producer};
 
 pub struct Client {
     pub(crate) channels: Channels,
@@ -169,6 +169,7 @@ impl Client {
         &mut self,
         stream_name: String,
         compression_type: CompressionType,
+        flow_control_bytes_limit: Option<usize>,
         flush_settings: FlushSettings,
         channel_provider_settings: ChannelProviderSettings,
     ) -> common::Result<(Appender, Producer)> {
@@ -177,12 +178,21 @@ impl Client {
 
         let channels = self.new_channel_provider(channel_provider_settings).await?;
 
-        let appender = Appender::new(request_sender.clone());
+        let flow_controller = {
+            if let Some(flow_control_bytes_limit) = flow_control_bytes_limit {
+                Some(flow_controller::start(flow_control_bytes_limit).await)
+            } else {
+                None
+            }
+        };
+
+        let appender = Appender::new(request_sender.clone(), flow_controller.clone());
         let producer = Producer::new(
             channels,
             self.url_scheme.clone(),
             request_receiver,
             stream_name,
+            flow_controller,
             compression_type,
             flush_settings,
         )
