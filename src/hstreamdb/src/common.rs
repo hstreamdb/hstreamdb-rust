@@ -3,7 +3,10 @@ use std::io;
 use hstreamdb_pb::StreamingFetchRequest;
 pub use hstreamdb_pb::{CompressionType, SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
+use prost::Message;
 use tonic::transport;
+
+use crate::producer;
 
 #[derive(Debug)]
 pub struct Subscription {
@@ -59,6 +62,8 @@ pub enum Error {
     NoChannelAvailable,
     #[error("{0}")]
     BadArgument(String),
+    #[error(transparent)]
+    AppenderSendError(producer::SendError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -87,6 +92,12 @@ impl From<url::ParseError> for Error {
     }
 }
 
+impl From<producer::SendError> for Error {
+    fn from(err: producer::SendError) -> Self {
+        Error::AppenderSendError(err)
+    }
+}
+
 pub type Result<A> = std::result::Result<A, Error>;
 
 #[derive(Debug, Clone)]
@@ -99,6 +110,21 @@ pub struct Record {
 pub enum Payload {
     HRecord(prost_types::Struct),
     RawRecord(Vec<u8>),
+}
+
+impl Payload {
+    pub(crate) fn encoded_len(&self) -> usize {
+        match self {
+            Payload::HRecord(x) => x.encoded_len(),
+            Payload::RawRecord(x) => x.len(),
+        }
+    }
+}
+
+impl Record {
+    pub(crate) fn encoded_len(&self) -> usize {
+        self.payload.encoded_len()
+    }
 }
 
 impl From<Vec<u8>> for Payload {

@@ -35,6 +35,7 @@ async fn test_producer() {
         .new_producer(
             stream_name.clone(),
             hstreamdb_pb::CompressionType::None,
+            None,
             FlushSettings::builder()
                 .set_max_batch_len(10)
                 .set_max_batch_size(10 * 4 * 1024)
@@ -61,6 +62,7 @@ async fn test_producer() {
                             rand_alphanumeric(20).as_bytes().to_vec(),
                         ),
                     })
+                    .await
                     .map_err(|x| x.to_string())
                     .unwrap();
                 results.push(result)

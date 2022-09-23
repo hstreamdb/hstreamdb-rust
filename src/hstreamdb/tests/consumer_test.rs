@@ -49,6 +49,7 @@ async fn test_consumer() {
         .new_producer(
             stream_name.clone(),
             hstreamdb_pb::CompressionType::Zstd,
+            None,
             FlushSettings::builder().set_max_batch_len(10).build(),
             ChannelProviderSettings {
                 concurrency_limit: Some(8),
@@ -72,6 +73,7 @@ async fn test_consumer() {
                             rand_alphanumeric(20).as_bytes().to_vec(),
                         ),
                     })
+                    .await
                     .unwrap();
                 results.push(result)
             }

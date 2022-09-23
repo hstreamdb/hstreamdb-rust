@@ -126,6 +126,7 @@ pub fn try_start_producer(
                 .new_producer(
                     stream_name,
                     compression_type,
+                    None,
                     flush_settings,
                     ChannelProviderSettings { concurrency_limit },
                 )
@@ -137,7 +138,7 @@ pub fn try_start_producer(
                 while let Some(record) = request_receiver.recv().await {
                     match record {
                         Some((record, result_sender)) => {
-                            let result_receiver = appender.append(record).unwrap();
+                            let result_receiver = appender.append(record).await.unwrap();
                             result_sender.send(result_receiver).unwrap()
                         }
                         None => request_receiver.close(),

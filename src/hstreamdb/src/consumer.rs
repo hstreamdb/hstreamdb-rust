@@ -131,7 +131,7 @@ fn process_streaming_fetch_response(
                     let ack_sender = ack_sender.clone();
                     let subscription_id = subscription_id.clone();
                     let consumer_name = consumer_name.clone();
-                    let ack_fn: AckFn = box (move || {
+                    let ack_fn: AckFn = Box::new(move || {
                         ack_sender.send(StreamingFetchRequest {
                             subscription_id,
                             consumer_name,
