@@ -3,7 +3,6 @@ use std::default::default;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::mem;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -198,51 +197,11 @@ impl Producer {
             .iter()
             .map(|(_, timer)| timer.abort())
             .for_each(drop);
-        let mut shard_buffer = mem::take(&mut self.shard_buffer);
-        for (shard_id, buffer) in shard_buffer.iter_mut() {
-            let results = self.shard_buffer_result.get_mut(shard_id).unwrap();
-            let shard_url = self.shard_urls.get(shard_id);
-            let shard_url_is_none = shard_url.is_none();
-            match lookup_shard(
-                &mut self.channels.channel().await,
-                &self.url_scheme,
-                *shard_id,
-                shard_url,
-            )
-            .await
-            {
-                Err(err) => {
-                    log::error!("lookup shard error: shard_id = {shard_id}, {err}")
-                }
-                Ok(shard_url) => {
-                    if shard_url_is_none {
-                        self.shard_urls.insert(*shard_id, shard_url.clone());
-                    };
-
-                    let buffer = mem::take(buffer);
-                    let buffer_size = get_buffer_size(&buffer);
-                    let release = self
-                        .flow_controller
-                        .clone()
-                        .map(|x| async move { x.release(buffer_size).await });
-                    let task = flush_(
-                        self.channels.clone(),
-                        self.stream_name.clone(),
-                        *shard_id,
-                        shard_url,
-                        self.compression_type,
-                        buffer,
-                        mem::take(results),
-                    );
-                    let task = tokio::spawn(async move {
-                        task.await;
-                        if let Some(release) = release {
-                            release.await
-                        }
-                    });
-                    self.tasks.push(task);
-                }
-            }
+        let shard_ids = self.shard_buffer.keys().copied().collect::<Vec<_>>();
+        for shard_id in shard_ids {
+            self.flush(shard_id).await.unwrap_or_else(|err| {
+                log::error!("producer flush error: shard_id = {shard_id}, {err}")
+            });
         }
 
         let tasks = std::mem::take(&mut self.tasks);
