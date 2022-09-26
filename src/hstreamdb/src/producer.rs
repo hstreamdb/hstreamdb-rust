@@ -396,34 +396,11 @@ impl Producer {
                                 buffer.push(record);
 
                                 if buffer_state.check(&self.flush_settings) {
-                                    let buffer =
-                                        clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                                    let results =
-                                        clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
-                                    self.shard_buffer_state.insert(shard_id, default());
-
-                                    let buffer_size = get_buffer_size(&buffer);
-                                    let release = self
-                                        .flow_controller
-                                        .clone()
-                                        .map(|x| async move { x.release(buffer_size).await });
-                                    let task = flush_(
-                                        self.channels.clone(),
-                                        self.stream_name.clone(),
-                                        shard_id,
-                                        shard_url,
-                                        self.compression_type,
-                                        buffer,
-                                        results,
-                                    );
-                                    let task = tokio::spawn(async move {
-                                        task.await;
-                                        if let Some(release) = release {
-                                            release.await
-                                        }
+                                    self.flush(shard_id).await.unwrap_or_else(|err| {
+                                        log::error!(
+                                            "producer flush error: shard_id = {shard_id}, {err}"
+                                        )
                                     });
-                                    self.tasks.push(task);
-                                    self.shard_buffer.remove(&shard_id);
                                 }
                             }
                         }
@@ -431,6 +408,51 @@ impl Producer {
                 }
             }
         }
+    }
+
+    async fn flush(&mut self, shard_id: ShardId) -> common::Result<()> {
+        let buffer = self.shard_buffer.remove(&shard_id).unwrap();
+        let results = self.shard_buffer_result.remove(&shard_id).unwrap();
+        _ = self.shard_buffer_state.remove(&shard_id);
+        if let Some(x) = self.shard_buffer_timer.remove(&shard_id) {
+            x.abort()
+        }
+        let shard_url = self.lookup_shard(shard_id).await?;
+        let buffer_size = get_buffer_size(&buffer);
+
+        let release = self
+            .flow_controller
+            .clone()
+            .map(|x| async move { x.release(buffer_size).await });
+        let task = flush_(
+            self.channels.clone(),
+            self.stream_name.clone(),
+            shard_id,
+            shard_url,
+            self.compression_type,
+            buffer,
+            results,
+        );
+        let task = tokio::spawn(async move {
+            task.await;
+            if let Some(release) = release {
+                release.await
+            }
+        });
+        self.tasks.push(task);
+
+        Ok(())
+    }
+
+    async fn lookup_shard(&mut self, shard_id: ShardId) -> common::Result<String> {
+        let shard_url = self.shard_urls.get(&shard_id);
+        utils::lookup_shard(
+            &mut self.channels.channel().await,
+            &self.url_scheme,
+            shard_id,
+            shard_url,
+        )
+        .await
     }
 }
 
