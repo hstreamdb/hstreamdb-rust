@@ -23,7 +23,7 @@ use tonic::transport::Channel;
 use crate::channel_provider::Channels;
 use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::flow_controller::FlowControllerClient;
-use crate::utils::{self, lookup_shard, partition_key_to_shard_id};
+use crate::utils::{self, partition_key_to_shard_id};
 
 type ResultVec = Vec<oneshot::Sender<Result<String, Arc<common::Error>>>>;
 
@@ -230,76 +230,48 @@ impl Producer {
                     "get shard id by partition key error: partition_key = {partition_key}, {err}"
                 )
             }
-            Ok(shard_id) => {
-                let shard_url = self.shard_urls.get(&shard_id);
-                let shard_url_is_none = shard_url.is_none();
-                match lookup_shard(
-                    &mut self.channels.channel().await,
-                    &self.url_scheme,
-                    shard_id,
-                    shard_url,
-                )
-                .await
-                {
-                    Err(err) => {
-                        log::error!("lookup shard error: shard_id = {shard_id}, {err}")
-                    }
-                    Ok(shard_url) => {
-                        if shard_url_is_none {
-                            self.shard_urls.insert(shard_id, shard_url.clone());
-                        };
-                        match self.shard_buffer.get_mut(&shard_id) {
-                            None => {
-                                let mut buffer_state: BufferState = default();
-                                buffer_state.modify(&record);
-                                self.shard_buffer_state.insert(shard_id, buffer_state);
-                                self.shard_buffer.insert(shard_id, vec![record]);
-                                self.shard_buffer_result
-                                    .insert(shard_id, vec![result_sender]);
+            Ok(shard_id) => match self.shard_buffer.get_mut(&shard_id) {
+                None => {
+                    let mut buffer_state: BufferState = default();
+                    buffer_state.modify(&record);
+                    self.shard_buffer_state.insert(shard_id, buffer_state);
+                    self.shard_buffer.insert(shard_id, vec![record]);
+                    self.shard_buffer_result
+                        .insert(shard_id, vec![result_sender]);
 
-                                let buffer_state =
-                                    self.shard_buffer_state.get_mut(&shard_id).unwrap();
-                                if buffer_state.check(&self.flush_settings) {
-                                    self.flush(shard_id).await.unwrap_or_else(|err| {
-                                        log::error!(
-                                            "producer flush error: shard_id = {shard_id}, {err}"
-                                        )
-                                    });
-                                } else if let Some(deadline) = self.flush_settings.deadline {
-                                    let sender = self.deadline_request_sender.clone();
-                                    let timer = tokio::spawn(async move {
-                                        tokio::time::sleep(Duration::from_millis(deadline as _))
-                                            .await;
-                                        sender.send(shard_id).unwrap();
-                                    });
-                                    self.shard_buffer_timer.insert(shard_id, timer);
-                                }
-                            }
-                            Some(buffer) => {
-                                if let Some(x) = self.shard_buffer_timer.remove(&shard_id) {
-                                    x.abort()
-                                }
-                                self.shard_buffer_result
-                                    .get_mut(&shard_id)
-                                    .unwrap()
-                                    .push(result_sender);
-                                let buffer_state =
-                                    self.shard_buffer_state.get_mut(&shard_id).unwrap();
-                                buffer_state.modify(&record);
-                                buffer.push(record);
-
-                                if buffer_state.check(&self.flush_settings) {
-                                    self.flush(shard_id).await.unwrap_or_else(|err| {
-                                        log::error!(
-                                            "producer flush error: shard_id = {shard_id}, {err}"
-                                        )
-                                    });
-                                }
-                            }
-                        }
+                    let buffer_state = self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                    if buffer_state.check(&self.flush_settings) {
+                        self.flush(shard_id).await.unwrap_or_else(|err| {
+                            log::error!("producer flush error: shard_id = {shard_id}, {err}")
+                        });
+                    } else if let Some(deadline) = self.flush_settings.deadline {
+                        let sender = self.deadline_request_sender.clone();
+                        let timer = tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(deadline as _)).await;
+                            sender.send(shard_id).unwrap();
+                        });
+                        self.shard_buffer_timer.insert(shard_id, timer);
                     }
                 }
-            }
+                Some(buffer) => {
+                    if let Some(x) = self.shard_buffer_timer.remove(&shard_id) {
+                        x.abort()
+                    }
+                    self.shard_buffer_result
+                        .get_mut(&shard_id)
+                        .unwrap()
+                        .push(result_sender);
+                    let buffer_state = self.shard_buffer_state.get_mut(&shard_id).unwrap();
+                    buffer_state.modify(&record);
+                    buffer.push(record);
+
+                    if buffer_state.check(&self.flush_settings) {
+                        self.flush(shard_id).await.unwrap_or_else(|err| {
+                            log::error!("producer flush error: shard_id = {shard_id}, {err}")
+                        });
+                    }
+                }
+            },
         }
     }
 
