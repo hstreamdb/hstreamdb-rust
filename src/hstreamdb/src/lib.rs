@@ -11,5 +11,5 @@ pub mod utils;
 
 pub use channel_provider::ChannelProviderSettings;
 pub use common::{
-    CompressionType, Error, Payload, Record, Result, SpecialOffset, Stream, Subscription,
+    CompressionType, Error, Payload, Record, RecordId, Result, SpecialOffset, Stream, Subscription,
 };

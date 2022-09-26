@@ -1,5 +1,5 @@
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
-use hstreamdb_pb::{LookupShardRequest, RecordId, Shard};
+use hstreamdb_pb::{LookupShardRequest, Shard};
 use md5::{Digest, Md5};
 use num_bigint::BigInt;
 use num_traits::Num;
@@ -7,13 +7,6 @@ use tonic::transport::Channel;
 
 use crate::common::{self, PartitionKey, ShardId};
 use crate::{format_url, Error};
-
-pub fn record_id_to_string(record_id: &RecordId) -> String {
-    format!(
-        "{}-{}-{}",
-        record_id.shard_id, record_id.batch_id, record_id.batch_index
-    )
-}
 
 pub async fn lookup_shard(
     channel: &mut HStreamApiClient<Channel>,

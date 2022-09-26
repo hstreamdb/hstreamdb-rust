@@ -84,7 +84,7 @@ async fn fetching(
     }
 }
 
-type AckFn = Box<dyn FnOnce() -> Result<(), SendError<StreamingFetchRequest>> + Send>;
+pub type AckFn = Box<dyn FnOnce() -> Result<(), SendError<StreamingFetchRequest>> + Send>;
 
 fn process_streaming_fetch_response(
     consumer_name: String,

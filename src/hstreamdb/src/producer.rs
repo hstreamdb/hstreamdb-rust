@@ -12,7 +12,7 @@ use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::h_stream_record_header::Flag;
 use hstreamdb_pb::{
     AppendRequest, BatchHStreamRecords, BatchedRecord, CompressionType, HStreamRecord,
-    HStreamRecordHeader, ListShardsRequest, Shard,
+    HStreamRecordHeader, ListShardsRequest, RecordId, Shard,
 };
 use prost::Message;
 use tokio::select;
@@ -25,12 +25,12 @@ use crate::common::{self, PartitionKey, Record, ShardId};
 use crate::flow_controller::FlowControllerClient;
 use crate::utils::{self, partition_key_to_shard_id};
 
-type ResultVec = Vec<oneshot::Sender<Result<String, Arc<common::Error>>>>;
+type ResultVec = Vec<oneshot::Sender<Result<RecordId, Arc<common::Error>>>>;
 
 #[derive(Debug)]
 pub(crate) struct Request(
     pub(crate) Record,
-    pub(crate) oneshot::Sender<Result<String, Arc<common::Error>>>,
+    pub(crate) oneshot::Sender<Result<RecordId, Arc<common::Error>>>,
 );
 
 pub struct Producer {
@@ -405,7 +405,7 @@ async fn append(
     shard_id: ShardId,
     compression_type: CompressionType,
     records: Vec<Record>,
-) -> common::Result<Vec<String>> {
+) -> common::Result<Vec<RecordId>> {
     let (batch_size, payload) = batch_records(compression_type, records)?;
     let records = BatchedRecord {
         compression_type: compression_type as i32,
@@ -424,9 +424,7 @@ async fn append(
         .await?
         .into_inner()
         .record_ids
-        .iter()
-        .map(utils::record_id_to_string)
-        .collect::<Vec<_>>();
+        .to_vec();
     Ok(record_ids)
 }
 
