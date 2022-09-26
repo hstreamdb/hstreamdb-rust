@@ -344,34 +344,11 @@ impl Producer {
                                 let buffer_state =
                                     self.shard_buffer_state.get_mut(&shard_id).unwrap();
                                 if buffer_state.check(&self.flush_settings) {
-                                    let buffer =
-                                        clear_shard_buffer(&mut self.shard_buffer, shard_id);
-                                    let results =
-                                        clear_shard_buffer(&mut self.shard_buffer_result, shard_id);
-                                    self.shard_buffer_state.insert(shard_id, default());
-
-                                    let buffer_size = get_buffer_size(&buffer);
-                                    let release = self
-                                        .flow_controller
-                                        .clone()
-                                        .map(|x| async move { x.release(buffer_size).await });
-                                    let task = flush_(
-                                        self.channels.clone(),
-                                        self.stream_name.clone(),
-                                        shard_id,
-                                        shard_url,
-                                        self.compression_type,
-                                        buffer,
-                                        results,
-                                    );
-                                    let task = tokio::spawn(async move {
-                                        task.await;
-                                        if let Some(release) = release {
-                                            release.await
-                                        }
+                                    self.flush(shard_id).await.unwrap_or_else(|err| {
+                                        log::error!(
+                                            "producer flush error: shard_id = {shard_id}, {err}"
+                                        )
                                     });
-                                    self.tasks.push(task);
-                                    self.shard_buffer.remove(&shard_id);
                                 } else if let Some(deadline) = self.flush_settings.deadline {
                                     let sender = self.deadline_request_sender.clone();
                                     let timer = tokio::spawn(async move {
