@@ -423,13 +423,18 @@ impl Producer {
 
     async fn lookup_shard(&mut self, shard_id: ShardId) -> common::Result<String> {
         let shard_url = self.shard_urls.get(&shard_id);
-        utils::lookup_shard(
+        let shard_url_is_none = shard_url.is_none();
+        let shard_url = utils::lookup_shard(
             &mut self.channels.channel().await,
             &self.url_scheme,
             shard_id,
             shard_url,
         )
-        .await
+        .await?;
+        if shard_url_is_none {
+            _ = self.shard_urls.insert(shard_id, shard_url.clone())
+        }
+        Ok(shard_url)
     }
 }
 
