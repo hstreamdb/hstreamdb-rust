@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::mem;
-
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{LookupShardRequest, RecordId, Shard};
 use md5::{Digest, Md5};
@@ -37,20 +34,6 @@ pub async fn lookup_shard(
             Ok(server_node)
         }
     }
-}
-
-pub fn clear_shard_buffer<A>(
-    shard_buffer: &mut HashMap<ShardId, Vec<A>>,
-    shard_id: ShardId,
-) -> Vec<A> {
-    let raw_buffer = shard_buffer.get_mut(&shard_id).unwrap();
-    clear_buffer(raw_buffer)
-}
-
-pub fn clear_buffer<A>(buffer: &mut Vec<A>) -> Vec<A> {
-    let mut new_buffer = Vec::new();
-    mem::swap(buffer, &mut new_buffer);
-    new_buffer
 }
 
 pub fn partition_key_to_shard_id(
