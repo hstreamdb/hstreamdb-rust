@@ -1,7 +1,7 @@
 use std::io;
 
 use hstreamdb_pb::StreamingFetchRequest;
-pub use hstreamdb_pb::{CompressionType, SpecialOffset, Stream};
+pub use hstreamdb_pb::{CompressionType, RecordId, SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
 use prost::Message;
 use tonic::transport;

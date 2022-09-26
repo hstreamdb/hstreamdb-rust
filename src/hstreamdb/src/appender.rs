@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use hstreamdb_pb::RecordId;
 use tokio::sync::oneshot;
 
 use crate::common::{self, Record};
@@ -28,7 +29,7 @@ impl Appender {
     pub async fn append(
         &mut self,
         record: Record,
-    ) -> common::Result<oneshot::Receiver<Result<String, Arc<common::Error>>>> {
+    ) -> common::Result<oneshot::Receiver<Result<RecordId, Arc<common::Error>>>> {
         if let Some(flow_controller) = &self.flow_controller {
             flow_controller.acquire(record.encoded_len()).await?
         }

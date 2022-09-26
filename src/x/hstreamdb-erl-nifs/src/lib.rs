@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use hstreamdb::client::Client;
 use hstreamdb::producer::FlushSettings;
-use hstreamdb::{ChannelProviderSettings, CompressionType, Record, Stream};
+use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
@@ -39,7 +39,7 @@ enum AppendResult {
 
 struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult>);
 
-type AppendResultType = oneshot::Receiver<Result<String, Arc<hstreamdb::Error>>>;
+type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
 pub struct NifAppender(UnboundedSender<Option<(Record, oneshot::Sender<AppendResultType>)>>);
 
@@ -207,7 +207,11 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
         let receiver: &Mutex<_> = &x.0;
         let mut receiver: MutexGuard<Option<_>> = receiver.lock();
         let receiver = mem::take(&mut (*receiver));
-        let append_result: Result<String, Arc<_>> = receiver.unwrap().blocking_recv().unwrap();
+        let append_result: Result<String, Arc<_>> = receiver
+            .unwrap()
+            .blocking_recv()
+            .unwrap()
+            .map(|x| x.to_string());
         let append_result = match append_result {
             Ok(record_id) => RecordId(record_id),
             Err(err) => Error(err.to_string()),
