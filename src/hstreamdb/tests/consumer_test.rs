@@ -54,6 +54,7 @@ async fn test_consumer() {
             ChannelProviderSettings {
                 concurrency_limit: Some(8),
             },
+            None,
         )
         .await
         .unwrap();

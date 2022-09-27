@@ -130,6 +130,7 @@ pub fn try_start_producer(
                     None,
                     flush_settings,
                     ChannelProviderSettings { concurrency_limit },
+                    None,
                 )
                 .await?;
 

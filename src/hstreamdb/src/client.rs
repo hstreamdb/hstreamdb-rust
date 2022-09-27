@@ -172,6 +172,7 @@ impl Client {
         flow_control_bytes_limit: Option<usize>,
         flush_settings: FlushSettings,
         channel_provider_settings: ChannelProviderSettings,
+        flush_callback: Option<Box<dyn Fn(bool, usize, usize) + Send + Sync>>,
     ) -> common::Result<(Appender, Producer)> {
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<producer::Request>();
@@ -195,6 +196,7 @@ impl Client {
             flow_controller,
             compression_type,
             flush_settings,
+            flush_callback,
         )
         .await?;
         Ok((appender, producer))

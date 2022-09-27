@@ -143,6 +143,7 @@ impl Producer {
         flow_controller: Option<FlowControllerClient>,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
+        flush_callback: Option<BoxedFlushCallback>,
     ) -> common::Result<Self> {
         let shards = channels
             .channel()
@@ -172,7 +173,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
-            flush_callback: todo!(),
+            flush_callback: Arc::new(flush_callback),
         };
         Ok(producer)
     }
@@ -300,6 +301,7 @@ impl Producer {
             shard_url,
             self.compression_type,
             buffer,
+            buffer_size,
             results,
             self.flush_callback.clone(),
         );
@@ -338,6 +340,7 @@ async fn flush(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    buffer_size: usize,
     results: ResultVec,
     flush_callback: Arc<Option<BoxedFlushCallback>>,
 ) -> Result<(), String> {
@@ -358,7 +361,7 @@ async fn flush(
         .await;
 
         if let Some(flush_callback) = flush_callback.as_ref() {
-            flush_callback(append_result.is_ok(), buffer.len(), todo!())
+            flush_callback(append_result.is_ok(), buffer.len(), buffer_size)
         }
 
         match append_result {
@@ -395,6 +398,7 @@ async fn flush_(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    buffer_size: usize,
     results: ResultVec,
     flush_callback: Arc<Option<BoxedFlushCallback>>,
 ) {
@@ -405,6 +409,7 @@ async fn flush_(
         shard_url,
         compression_type,
         buffer,
+        buffer_size,
         results,
         flush_callback,
     )
