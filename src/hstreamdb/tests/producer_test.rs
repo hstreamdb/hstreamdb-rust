@@ -43,6 +43,7 @@ async fn test_producer() {
             ChannelProviderSettings {
                 concurrency_limit: Some(8),
             },
+            None,
         )
         .await
         .unwrap();

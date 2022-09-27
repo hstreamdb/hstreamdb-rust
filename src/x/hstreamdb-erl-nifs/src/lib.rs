@@ -16,7 +16,8 @@ mod runtime;
 rustler::atoms! {
     compression_type, none, gzip, zstd,
     concurrency_limit,
-    max_batch_len, max_batch_size, batch_deadline
+    max_batch_len, max_batch_size, batch_deadline,
+    record_id
 }
 
 rustler::init!(
@@ -33,7 +34,7 @@ rustler::init!(
 
 #[derive(Debug)]
 enum AppendResult {
-    RecordId(String),
+    RecordId(RecordId),
     Error(String),
 }
 
@@ -129,6 +130,7 @@ pub fn try_start_producer(
                     None,
                     flush_settings,
                     ChannelProviderSettings { concurrency_limit },
+                    None,
                 )
                 .await?;
 
@@ -207,11 +209,8 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
         let receiver: &Mutex<_> = &x.0;
         let mut receiver: MutexGuard<Option<_>> = receiver.lock();
         let receiver = mem::take(&mut (*receiver));
-        let append_result: Result<String, Arc<_>> = receiver
-            .unwrap()
-            .blocking_recv()
-            .unwrap()
-            .map(|x| x.to_string());
+        let append_result: Result<hstreamdb::RecordId, Arc<_>> =
+            receiver.unwrap().blocking_recv().unwrap();
         let append_result = match append_result {
             Ok(record_id) => RecordId(record_id),
             Err(err) => Error(err.to_string()),
@@ -219,11 +218,19 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
         result.set(append_result).unwrap()
     }
 
-    let result = match result.get().unwrap() {
-        RecordId(record_id) => (ok(), record_id.to_string()),
-        Error(err) => (error(), err.to_string()),
-    };
-    result.encode(env)
+    match result.get().unwrap() {
+        RecordId(record_id_v) => (
+            ok(),
+            (
+                record_id(),
+                record_id_v.shard_id,
+                record_id_v.batch_id,
+                record_id_v.batch_index,
+            ),
+        )
+            .encode(env),
+        Error(err) => (error(), err.to_string()).encode(env),
+    }
 }
 
 fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {

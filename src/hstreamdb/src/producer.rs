@@ -50,7 +50,10 @@ pub struct Producer {
     compression_type: CompressionType,
     flush_settings: FlushSettings,
     shards: Vec<Shard>,
+    flush_callback: Option<BoxedFlushCallback>,
 }
+
+pub type BoxedFlushCallback = Arc<dyn Fn(bool, usize, usize) + Send + Sync>;
 
 #[derive(Default)]
 struct BufferState {
@@ -132,6 +135,7 @@ impl BufferState {
 }
 
 impl Producer {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn new(
         channels: Channels,
         url_scheme: String,
@@ -140,6 +144,7 @@ impl Producer {
         flow_controller: Option<FlowControllerClient>,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
+        flush_callback: Option<BoxedFlushCallback>,
     ) -> common::Result<Self> {
         let shards = channels
             .channel()
@@ -169,6 +174,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
+            flush_callback,
         };
         Ok(producer)
     }
@@ -296,7 +302,9 @@ impl Producer {
             shard_url,
             self.compression_type,
             buffer,
+            buffer_size,
             results,
+            self.flush_callback.clone(),
         );
         let task = tokio::spawn(async move {
             task.await;
@@ -326,6 +334,7 @@ impl Producer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flush(
     channels: Channels,
     stream_name: String,
@@ -333,7 +342,9 @@ async fn flush(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    buffer_size: usize,
     results: ResultVec,
+    flush_callback: Option<BoxedFlushCallback>,
 ) -> Result<(), String> {
     if buffer.is_empty() {
         Ok(())
@@ -342,15 +353,20 @@ async fn flush(
             .channel_at(shard_url.clone())
             .await
             .map_err(|err| format!("producer connect error: url = {shard_url}, {err}"))?;
-        match append(
+        let append_result = append(
             channel,
             stream_name,
             shard_id,
             compression_type,
             buffer.to_vec(),
         )
-        .await
-        {
+        .await;
+
+        if let Some(flush_callback) = flush_callback.as_ref() {
+            flush_callback(append_result.is_ok(), buffer.len(), buffer_size)
+        }
+
+        match append_result {
             Err(err) => {
                 let err = Arc::new(err);
                 for sender in results.into_iter() {
@@ -377,6 +393,7 @@ async fn flush(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flush_(
     channels: Channels,
     stream_name: String,
@@ -384,7 +401,9 @@ async fn flush_(
     shard_url: String,
     compression_type: CompressionType,
     buffer: Vec<Record>,
+    buffer_size: usize,
     results: ResultVec,
+    flush_callback: Option<BoxedFlushCallback>,
 ) {
     flush(
         channels,
@@ -393,7 +412,9 @@ async fn flush_(
         shard_url,
         compression_type,
         buffer,
+        buffer_size,
         results,
+        flush_callback,
     )
     .await
     .unwrap_or_else(|err| log::error!("{err}"))
