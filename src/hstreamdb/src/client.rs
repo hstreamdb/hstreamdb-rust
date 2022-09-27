@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::appender::Appender;
 use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
-use crate::producer::{BoxedFlushCallback, FlushSettings, Producer};
+use crate::producer::{FlushCallback, FlushSettings, Producer};
 use crate::{common, flow_controller, format_url, producer};
 
 pub struct Client {
@@ -172,7 +172,7 @@ impl Client {
         flow_control_bytes_limit: Option<usize>,
         flush_settings: FlushSettings,
         channel_provider_settings: ChannelProviderSettings,
-        flush_callback: Option<BoxedFlushCallback>,
+        on_flush: Option<FlushCallback>,
     ) -> common::Result<(Appender, Producer)> {
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<producer::Request>();
@@ -196,7 +196,7 @@ impl Client {
             flow_controller,
             compression_type,
             flush_settings,
-            flush_callback,
+            on_flush,
         )
         .await?;
         Ok((appender, producer))

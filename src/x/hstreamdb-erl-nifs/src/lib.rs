@@ -2,12 +2,12 @@ use std::mem;
 use std::sync::Arc;
 
 use hstreamdb::client::Client;
-use hstreamdb::producer::FlushSettings;
+use hstreamdb::producer::{FlushCallback, FlushSettings};
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
-use rustler::{resource, Atom, Encoder, Env, NifResult, ResourceArc, Term};
+use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::oneshot;
 
@@ -17,6 +17,7 @@ rustler::atoms! {
     compression_type, none, gzip, zstd,
     concurrency_limit,
     max_batch_len, max_batch_size, batch_deadline,
+    on_flush,
     record_id
 }
 
@@ -113,7 +114,8 @@ pub fn try_start_producer(
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
         unbounded_channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>();
-    let (compression_type, concurrency_limit, flush_settings) = new_producer_settings(settings)?;
+    let (compression_type, concurrency_limit, flush_settings, on_flush) =
+        new_producer_settings(settings)?;
     let future = async move {
         let xs = async move {
             let mut client = Client::new(
@@ -130,7 +132,7 @@ pub fn try_start_producer(
                     None,
                     flush_settings,
                     ChannelProviderSettings { concurrency_limit },
-                    None,
+                    on_flush,
                 )
                 .await?;
 
@@ -247,7 +249,12 @@ fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
 
 fn new_producer_settings(
     proplists: Term,
-) -> hstreamdb::Result<(CompressionType, Option<usize>, FlushSettings)> {
+) -> hstreamdb::Result<(
+    CompressionType,
+    Option<usize>,
+    FlushSettings,
+    Option<FlushCallback>,
+)> {
     let proplists = proplists
         .into_list_iterator()
         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
@@ -256,7 +263,7 @@ fn new_producer_settings(
     let mut size = None;
     let mut deadline = None;
     let mut compression_type_v: Atom = none();
-
+    let mut on_flush_callback: Option<FlushCallback> = None;
     for x in proplists {
         if x.is_tuple() {
             let (k, v): (Atom, Term) = x
@@ -286,6 +293,8 @@ fn new_producer_settings(
                 compression_type_v = v
                     .decode()
                     .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+            } else if k == on_flush() {
+                on_flush_callback = Some(get_on_flush_callback(v)?);
             }
         }
     }
@@ -310,5 +319,20 @@ fn new_producer_settings(
         ))
     })?;
 
-    Ok((compression_type_v, concurrency_limit_v, flush_settings))
+    Ok((
+        compression_type_v,
+        concurrency_limit_v,
+        flush_settings,
+        on_flush_callback,
+    ))
+}
+
+fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
+    let pid: LocalPid = pid
+        .decode()
+        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+    let f: FlushCallback = Arc::new(move |is_ok, len, size| {
+        OwnedEnv::new().send_and_clear(&pid, |env| (is_ok, len, size).encode(env))
+    });
+    Ok(f)
 }
