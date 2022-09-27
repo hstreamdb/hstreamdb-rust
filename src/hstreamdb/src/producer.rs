@@ -135,6 +135,7 @@ impl BufferState {
 }
 
 impl Producer {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn new(
         channels: Channels,
         url_scheme: String,
@@ -173,7 +174,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
-            flush_callback: flush_callback,
+            flush_callback,
         };
         Ok(producer)
     }
