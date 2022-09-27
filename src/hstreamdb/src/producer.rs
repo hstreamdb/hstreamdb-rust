@@ -50,7 +50,10 @@ pub struct Producer {
     compression_type: CompressionType,
     flush_settings: FlushSettings,
     shards: Vec<Shard>,
+    flush_callback: Arc<Option<BoxedFlushCallback>>,
 }
+
+type BoxedFlushCallback = Box<dyn Fn(bool, usize, usize) + Send + Sync>;
 
 #[derive(Default)]
 struct BufferState {
@@ -169,6 +172,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
+            flush_callback: todo!(),
         };
         Ok(producer)
     }
@@ -297,6 +301,7 @@ impl Producer {
             self.compression_type,
             buffer,
             results,
+            self.flush_callback.clone(),
         );
         let task = tokio::spawn(async move {
             task.await;
@@ -334,6 +339,7 @@ async fn flush(
     compression_type: CompressionType,
     buffer: Vec<Record>,
     results: ResultVec,
+    flush_callback: Arc<Option<BoxedFlushCallback>>,
 ) -> Result<(), String> {
     if buffer.is_empty() {
         Ok(())
@@ -342,15 +348,20 @@ async fn flush(
             .channel_at(shard_url.clone())
             .await
             .map_err(|err| format!("producer connect error: url = {shard_url}, {err}"))?;
-        match append(
+        let append_result = append(
             channel,
             stream_name,
             shard_id,
             compression_type,
             buffer.to_vec(),
         )
-        .await
-        {
+        .await;
+
+        if let Some(flush_callback) = flush_callback.as_ref() {
+            flush_callback(append_result.is_ok(), buffer.len(), todo!())
+        }
+
+        match append_result {
             Err(err) => {
                 let err = Arc::new(err);
                 for sender in results.into_iter() {
@@ -385,6 +396,7 @@ async fn flush_(
     compression_type: CompressionType,
     buffer: Vec<Record>,
     results: ResultVec,
+    flush_callback: Arc<Option<BoxedFlushCallback>>,
 ) {
     flush(
         channels,
@@ -394,6 +406,7 @@ async fn flush_(
         compression_type,
         buffer,
         results,
+        flush_callback,
     )
     .await
     .unwrap_or_else(|err| log::error!("{err}"))
