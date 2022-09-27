@@ -73,7 +73,8 @@ jobs:
               $HSTREAM_IMAGE                                                   \
                 hstream-server                                                 \
                   --store-config /data/store/logdevice.conf --log-level debug  \
-                  --port 6570 --server-id 0
+                  --port 6570 --internal-port 6670 --server-id 0               \
+                  --seed-nodes "127.0.0.1:6670,127.0.0.1:6671,127.0.0.1:6672"
 
           docker run -td --network host                                        \
             --name hs-test-hserver1                                            \
@@ -81,7 +82,8 @@ jobs:
               $HSTREAM_IMAGE                                                   \
                 hstream-server                                                 \
                   --store-config /data/store/logdevice.conf --log-level debug  \
-                  --port 6571 --server-id 1
+                  --port 6571 --internal-port 6671 --server-id 1               \
+                  --seed-nodes "127.0.0.1:6670,127.0.0.1:6671,127.0.0.1:6672"
 
           docker run -td --network host                                        \
             --name hs-test-hserver2                                            \
@@ -89,7 +91,13 @@ jobs:
               $HSTREAM_IMAGE                                                   \
                 hstream-server                                                 \
                   --store-config /data/store/logdevice.conf --log-level debug  \
-                  --port 6572 --server-id 2
+                  --port 6572 --internal-port 6672 --server-id 2               \
+                  --seed-nodes "127.0.0.1:6670,127.0.0.1:6671,127.0.0.1:6672"
+
+          sleep 5
+
+          docker exec hs-test-hserver0 hstream init
+          docker exec hs-test-hserver0 hadmin server status
 
       - run: cargo test --workspace --no-fail-fast --all-features --locked
       - run: cargo test --doc --workspace --no-fail-fast --all-features --locked
