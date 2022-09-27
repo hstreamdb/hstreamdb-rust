@@ -50,10 +50,10 @@ pub struct Producer {
     compression_type: CompressionType,
     flush_settings: FlushSettings,
     shards: Vec<Shard>,
-    flush_callback: Arc<Option<BoxedFlushCallback>>,
+    flush_callback: Option<BoxedFlushCallback>,
 }
 
-type BoxedFlushCallback = Box<dyn Fn(bool, usize, usize) + Send + Sync>;
+pub type BoxedFlushCallback = Arc<dyn Fn(bool, usize, usize) + Send + Sync>;
 
 #[derive(Default)]
 struct BufferState {
@@ -173,7 +173,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
-            flush_callback: Arc::new(flush_callback),
+            flush_callback: flush_callback,
         };
         Ok(producer)
     }
@@ -333,6 +333,7 @@ impl Producer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flush(
     channels: Channels,
     stream_name: String,
@@ -342,7 +343,7 @@ async fn flush(
     buffer: Vec<Record>,
     buffer_size: usize,
     results: ResultVec,
-    flush_callback: Arc<Option<BoxedFlushCallback>>,
+    flush_callback: Option<BoxedFlushCallback>,
 ) -> Result<(), String> {
     if buffer.is_empty() {
         Ok(())
@@ -391,6 +392,7 @@ async fn flush(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn flush_(
     channels: Channels,
     stream_name: String,
@@ -400,7 +402,7 @@ async fn flush_(
     buffer: Vec<Record>,
     buffer_size: usize,
     results: ResultVec,
-    flush_callback: Arc<Option<BoxedFlushCallback>>,
+    flush_callback: Option<BoxedFlushCallback>,
 ) {
     flush(
         channels,
