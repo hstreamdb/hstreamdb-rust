@@ -50,10 +50,10 @@ pub struct Producer {
     compression_type: CompressionType,
     flush_settings: FlushSettings,
     shards: Vec<Shard>,
-    flush_callback: Option<BoxedFlushCallback>,
+    on_flush: Option<FlushCallback>,
 }
 
-pub type BoxedFlushCallback = Arc<dyn Fn(bool, usize, usize) + Send + Sync>;
+pub type FlushCallback = Arc<dyn Fn(bool, usize, usize) + Send + Sync>;
 
 #[derive(Default)]
 struct BufferState {
@@ -144,7 +144,7 @@ impl Producer {
         flow_controller: Option<FlowControllerClient>,
         compression_type: CompressionType,
         flush_settings: FlushSettings,
-        flush_callback: Option<BoxedFlushCallback>,
+        on_flush: Option<FlushCallback>,
     ) -> common::Result<Self> {
         let shards = channels
             .channel()
@@ -174,7 +174,7 @@ impl Producer {
             compression_type,
             flush_settings,
             shards,
-            flush_callback,
+            on_flush,
         };
         Ok(producer)
     }
@@ -304,7 +304,7 @@ impl Producer {
             buffer,
             buffer_size,
             results,
-            self.flush_callback.clone(),
+            self.on_flush.clone(),
         );
         let task = tokio::spawn(async move {
             task.await;
@@ -344,7 +344,7 @@ async fn flush(
     buffer: Vec<Record>,
     buffer_size: usize,
     results: ResultVec,
-    flush_callback: Option<BoxedFlushCallback>,
+    on_flush: Option<FlushCallback>,
 ) -> Result<(), String> {
     if buffer.is_empty() {
         Ok(())
@@ -362,8 +362,8 @@ async fn flush(
         )
         .await;
 
-        if let Some(flush_callback) = flush_callback.as_ref() {
-            flush_callback(append_result.is_ok(), buffer.len(), buffer_size)
+        if let Some(on_flush) = on_flush.as_ref() {
+            on_flush(append_result.is_ok(), buffer.len(), buffer_size)
         }
 
         match append_result {
@@ -403,7 +403,7 @@ async fn flush_(
     buffer: Vec<Record>,
     buffer_size: usize,
     results: ResultVec,
-    flush_callback: Option<BoxedFlushCallback>,
+    on_flush: Option<FlushCallback>,
 ) {
     flush(
         channels,
@@ -414,7 +414,7 @@ async fn flush_(
         buffer,
         buffer_size,
         results,
-        flush_callback,
+        on_flush,
     )
     .await
     .unwrap_or_else(|err| log::error!("{err}"))
