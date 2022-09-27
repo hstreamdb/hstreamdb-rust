@@ -17,7 +17,7 @@ rustler::atoms! {
     compression_type, none, gzip, zstd,
     concurrency_limit,
     max_batch_len, max_batch_size, batch_deadline,
-    shard_id, batch_id, batch_index
+    record_id
 }
 
 rustler::init!(
@@ -218,13 +218,14 @@ fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
     }
 
     match result.get().unwrap() {
-        RecordId(record_id) => (
+        RecordId(record_id_v) => (
             ok(),
-            vec![
-                (shard_id(), record_id.shard_id),
-                (batch_id(), record_id.batch_id),
-                (batch_index(), record_id.batch_index.into()),
-            ],
+            (
+                record_id(),
+                record_id_v.shard_id,
+                record_id_v.batch_id,
+                record_id_v.batch_index,
+            ),
         )
             .encode(env),
         Error(err) => (error(), err.to_string()).encode(env),
