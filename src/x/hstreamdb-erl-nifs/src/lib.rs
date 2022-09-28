@@ -17,7 +17,7 @@ rustler::atoms! {
     compression_type, none, gzip, zstd,
     concurrency_limit,
     max_batch_len, max_batch_size, batch_deadline,
-    on_flush, on_flush_callback_argument,
+    on_flush, flush_result,
     record_id
 }
 
@@ -332,9 +332,7 @@ fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
         .decode()
         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
     let f: FlushCallback = Arc::new(move |is_ok, len, size| {
-        OwnedEnv::new().send_and_clear(&pid, |env| {
-            (on_flush_callback_argument(), is_ok, len, size).encode(env)
-        })
+        OwnedEnv::new().send_and_clear(&pid, |env| (flush_result(), is_ok, len, size).encode(env))
     });
     Ok(f)
 }
