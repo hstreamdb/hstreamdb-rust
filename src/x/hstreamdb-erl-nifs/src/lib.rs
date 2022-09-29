@@ -8,7 +8,7 @@ use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::channel;
 use tokio::sync::oneshot;
 
 mod runtime;
@@ -43,7 +43,9 @@ struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
-pub struct NifAppender(UnboundedSender<Option<(Record, oneshot::Sender<AppendResultType>)>>);
+pub struct NifAppender(
+    tokio::sync::mpsc::Sender<Option<(Record, oneshot::Sender<AppendResultType>)>>,
+);
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
@@ -113,7 +115,7 @@ pub fn try_start_producer(
 ) -> hstreamdb::Result<ResourceArc<NifAppender>> {
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
-        unbounded_channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>();
+        channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>(1);
     let (compression_type, concurrency_limit, flush_settings, on_flush) =
         new_producer_settings(settings)?;
     let future = async move {
@@ -178,7 +180,7 @@ pub fn start_producer<'a>(
 #[rustler::nif]
 fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     let producer = &producer.0;
-    producer.send(None).unwrap_or(());
+    producer.blocking_send(None).unwrap_or(());
     ok()
 }
 
@@ -194,7 +196,7 @@ fn append(
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer.send(Some((record, sender))).unwrap();
+    producer.blocking_send(Some((record, sender))).unwrap();
     let receiver = receiver.blocking_recv().unwrap();
     ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
