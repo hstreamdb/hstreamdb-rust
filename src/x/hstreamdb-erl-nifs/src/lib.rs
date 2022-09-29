@@ -8,14 +8,14 @@ use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::channel;
 use tokio::sync::oneshot;
 
 mod runtime;
 
 rustler::atoms! {
     compression_type, none, gzip, zstd,
-    concurrency_limit,
+    concurrency_limit, flow_control_size,
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
     record_id
@@ -43,7 +43,9 @@ struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
-pub struct NifAppender(UnboundedSender<Option<(Record, oneshot::Sender<AppendResultType>)>>);
+pub struct NifAppender(
+    tokio::sync::mpsc::Sender<Option<(Record, oneshot::Sender<AppendResultType>)>>,
+);
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
@@ -113,9 +115,14 @@ pub fn try_start_producer(
 ) -> hstreamdb::Result<ResourceArc<NifAppender>> {
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
-        unbounded_channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>();
-    let (compression_type, concurrency_limit, flush_settings, on_flush) =
-        new_producer_settings(settings)?;
+        channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>(1);
+    let ProducerSettings {
+        compression_type,
+        concurrency_limit,
+        flow_control_size,
+        flush_settings,
+        on_flush_callback,
+    } = ProducerSettings::new(settings)?;
     let future = async move {
         let xs = async move {
             let mut client = Client::new(
@@ -129,10 +136,10 @@ pub fn try_start_producer(
                 .new_producer(
                     stream_name,
                     compression_type,
-                    None,
+                    flow_control_size,
                     flush_settings,
                     ChannelProviderSettings { concurrency_limit },
-                    on_flush,
+                    on_flush_callback,
                 )
                 .await?;
 
@@ -178,7 +185,7 @@ pub fn start_producer<'a>(
 #[rustler::nif]
 fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     let producer = &producer.0;
-    producer.send(None).unwrap_or(());
+    producer.blocking_send(None).unwrap_or(());
     ok()
 }
 
@@ -194,7 +201,7 @@ fn append(
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer.send(Some((record, sender))).unwrap();
+    producer.blocking_send(Some((record, sender))).unwrap();
     let receiver = receiver.blocking_recv().unwrap();
     ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
@@ -247,84 +254,94 @@ fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
     }
 }
 
-fn new_producer_settings(
-    proplists: Term,
-) -> hstreamdb::Result<(
-    CompressionType,
-    Option<usize>,
-    FlushSettings,
-    Option<FlushCallback>,
-)> {
-    let proplists = proplists
-        .into_list_iterator()
-        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
-    let mut concurrency_limit_v = None;
-    let mut len = None;
-    let mut size = None;
-    let mut deadline = None;
-    let mut compression_type_v: Atom = none();
-    let mut on_flush_callback: Option<FlushCallback> = None;
-    for x in proplists {
-        if x.is_tuple() {
-            let (k, v): (Atom, Term) = x
-                .decode()
-                .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
-            if k == concurrency_limit() {
-                concurrency_limit_v = Some(
-                    v.decode()
-                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
-                );
-            } else if k == max_batch_len() {
-                len = Some(
-                    v.decode()
-                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
-                );
-            } else if k == max_batch_size() {
-                size = Some(
-                    v.decode()
-                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
-                );
-            } else if k == batch_deadline() {
-                deadline = Some(
-                    v.decode()
-                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
-                )
-            } else if k == compression_type() {
-                compression_type_v = v
+struct ProducerSettings {
+    compression_type: CompressionType,
+    concurrency_limit: Option<usize>,
+    flow_control_size: Option<usize>,
+    flush_settings: FlushSettings,
+    on_flush_callback: Option<FlushCallback>,
+}
+
+impl ProducerSettings {
+    fn new(proplists: Term) -> hstreamdb::Result<Self> {
+        let proplists = proplists
+            .into_list_iterator()
+            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+        let mut concurrency_limit_v = None;
+        let mut flow_control_size_v = None;
+        let mut len = None;
+        let mut size = None;
+        let mut deadline = None;
+        let mut compression_type_v: Atom = none();
+        let mut on_flush_callback: Option<FlushCallback> = None;
+        for x in proplists {
+            if x.is_tuple() {
+                let (k, v): (Atom, Term) = x
                     .decode()
                     .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
-            } else if k == on_flush() {
-                on_flush_callback = Some(get_on_flush_callback(v)?);
+                if k == concurrency_limit() {
+                    concurrency_limit_v = Some(
+                        v.decode()
+                            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                    );
+                } else if k == flow_control_size() {
+                    flow_control_size_v = Some(
+                        v.decode()
+                            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                    );
+                } else if k == max_batch_len() {
+                    len = Some(
+                        v.decode()
+                            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                    );
+                } else if k == max_batch_size() {
+                    size = Some(
+                        v.decode()
+                            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                    );
+                } else if k == batch_deadline() {
+                    deadline = Some(
+                        v.decode()
+                            .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?,
+                    )
+                } else if k == compression_type() {
+                    compression_type_v = v
+                        .decode()
+                        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+                } else if k == on_flush() {
+                    on_flush_callback = Some(get_on_flush_callback(v)?);
+                }
             }
         }
+
+        let flush_settings = {
+            let mut flush_settings = FlushSettings::builder();
+            if let Some(len) = len {
+                flush_settings = flush_settings.set_max_batch_len(len)
+            }
+            if let Some(size) = size {
+                flush_settings = flush_settings.set_max_batch_size(size)
+            }
+            if let Some(deadline) = deadline {
+                flush_settings = flush_settings.set_batch_deadline(deadline)
+            }
+            flush_settings.build()
+        };
+
+        let compression_type_v = atom_to_compression_type(compression_type_v).ok_or_else(|| {
+            hstreamdb::Error::BadArgument(format!(
+                "no match for compression type `{compression_type_v:?}`"
+            ))
+        })?;
+
+        Ok(ProducerSettings {
+            compression_type: compression_type_v,
+            concurrency_limit: concurrency_limit_v,
+            flow_control_size: flow_control_size_v,
+            flush_settings,
+            on_flush_callback,
+        })
     }
-
-    let flush_settings = {
-        let mut flush_settings = FlushSettings::builder();
-        if let Some(len) = len {
-            flush_settings = flush_settings.set_max_batch_len(len)
-        }
-        if let Some(size) = size {
-            flush_settings = flush_settings.set_max_batch_size(size)
-        }
-        if let Some(deadline) = deadline {
-            flush_settings = flush_settings.set_batch_deadline(deadline)
-        }
-        flush_settings.build()
-    };
-
-    let compression_type_v = atom_to_compression_type(compression_type_v).ok_or_else(|| {
-        hstreamdb::Error::BadArgument(format!(
-            "no match for compression type `{compression_type_v:?}`"
-        ))
-    })?;
-
-    Ok((
-        compression_type_v,
-        concurrency_limit_v,
-        flush_settings,
-        on_flush_callback,
-    ))
 }
 
 fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
