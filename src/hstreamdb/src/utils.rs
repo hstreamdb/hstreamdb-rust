@@ -44,10 +44,10 @@ pub fn partition_key_to_shard_id(
     };
 
     for shard in shards {
-        let start = BigInt::from_str_radix(&shard.start_hash_range_key, 16).map_err(|err| {
+        let start = BigInt::from_str_radix(&shard.start_hash_range_key, 10).map_err(|err| {
             common::Error::PartitionKeyError(common::PartitionKeyError::ParseBigIntError(err))
         })?;
-        let end = BigInt::from_str_radix(&shard.end_hash_range_key, 16).map_err(|err| {
+        let end = BigInt::from_str_radix(&shard.end_hash_range_key, 10).map_err(|err| {
             common::Error::PartitionKeyError(common::PartitionKeyError::ParseBigIntError(err))
         })?;
 
@@ -61,9 +61,66 @@ pub fn partition_key_to_shard_id(
     ))
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! format_url {
     ($scheme:expr, $host:expr, $port:expr) => {
         format!("{}://{}:{}", $scheme, $host, $port)
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::env;
+
+    use hstreamdb_pb::{ListShardsRequest, Stream};
+    use hstreamdb_test_utils::rand_alphanumeric;
+
+    use super::partition_key_to_shard_id;
+    use crate::client::Client;
+    use crate::ChannelProviderSettings;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_partition_key_to_shard_id() {
+        let addr = env::var("TEST_SERVER_ADDR").unwrap();
+        let mut client = Client::new(
+            addr,
+            ChannelProviderSettings {
+                concurrency_limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let stream_name = rand_alphanumeric(20);
+
+        client
+            .create_stream(Stream {
+                stream_name: stream_name.clone(),
+                replication_factor: 1,
+                backlog_duration: 10 * 60,
+                shard_count: 200,
+            })
+            .await
+            .unwrap();
+
+        let shards = client
+            .channels
+            .channel()
+            .await
+            .list_shards(ListShardsRequest { stream_name })
+            .await
+            .unwrap()
+            .into_inner()
+            .shards;
+
+        let mut result = HashMap::new();
+        for _ in 0..400 {
+            let shard_id = partition_key_to_shard_id(&shards, rand_alphanumeric(20)).unwrap();
+            result.insert(shard_id, ());
+        }
+        println!("result.len() = {}", result.len());
+        assert!(result.len() > 100)
+    }
 }
