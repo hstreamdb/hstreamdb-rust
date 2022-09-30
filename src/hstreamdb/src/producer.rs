@@ -355,7 +355,7 @@ async fn flush(
             .map_err(|err| format!("producer connect error: url = {shard_url}, {err}"))?;
         let append_result = append(
             channel,
-            stream_name,
+            stream_name.clone(),
             shard_id,
             compression_type,
             buffer.to_vec(),
@@ -376,7 +376,9 @@ async fn flush(
                         })
                     }
                 }
-                Err(format!("producer append error: url = {shard_url}, {err}"))
+                Err(format!(
+                    "producer append error: url = {shard_url}, stream = {stream_name}, shard_id = {shard_id}, {err}"
+                ))
             }
             Ok(append_result) => {
                 log::debug!("append succeed: len = {}", append_result.len());
