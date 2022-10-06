@@ -103,19 +103,11 @@ mod tests {
 
     use super::partition_key_to_shard_id;
     use crate::client::Client;
-    use crate::ChannelProviderSettings;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_partition_key_to_shard_id() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr).await.unwrap();
 
         let stream_name = rand_alphanumeric(20);
 
