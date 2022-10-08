@@ -1,3 +1,5 @@
+pub mod test_containers;
+
 pub fn rand_alphanumeric(len: usize) -> String {
     use rand::distributions::Alphanumeric;
     use rand::{thread_rng, Rng};
