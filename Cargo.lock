@@ -562,6 +562,7 @@ dependencies = [
  "anyhow",
  "env_logger",
  "log",
+ "once_cell",
  "rand",
  "testcontainers",
  "workspace-hack",
