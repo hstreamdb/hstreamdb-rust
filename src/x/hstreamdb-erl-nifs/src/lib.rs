@@ -6,13 +6,14 @@ use hstreamdb::producer::{FlushCallback, FlushSettings};
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
-use rustler::types::atom::{error, ok};
+use rustler::types::atom::{badarg, error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
 use tokio::sync::oneshot;
 
 mod runtime;
 
 rustler::atoms! {
+    terminated,
     compression_type, none, gzip, zstd,
     concurrency_limit, flow_control_size,
     max_batch_len, max_batch_size, batch_deadline,
@@ -187,22 +188,24 @@ fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     ok()
 }
 
-fn try_append(
+fn try_append<'a>(
+    env: Env<'a>,
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: Term,
-) -> Result<ResourceArc<AppendResultFuture>, String> {
+) -> Result<ResourceArc<AppendResultFuture>, Term<'a>> {
     let raw_payload = rustler::Binary::from_term(raw_payload)
-        .map_err(|err| hstreamdb::common::Error::BadArgument(format!("{err:?}")).to_string())?;
+        .map_err(|err| (badarg(), format!("{err:?}")).encode(env))?;
     let record = Record {
         partition_key,
         payload: hstreamdb::Payload::RawRecord(raw_payload.to_vec()),
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer
-        .send(Some((record, sender)))
-        .map_err(|_| "nif appender send error: producer is closed".to_string())?;
+    producer.send(Some((record, sender))).map_err(|_| {
+        log::warn!("nif appender send error: producer is closed");
+        terminated().encode(env)
+    })?;
     let receiver = receiver.blocking_recv().unwrap();
     Ok(ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
@@ -217,7 +220,7 @@ fn append<'a>(
     partition_key: String,
     raw_payload: Term,
 ) -> Term<'a> {
-    match try_append(producer, partition_key, raw_payload) {
+    match try_append(env, producer, partition_key, raw_payload) {
         Ok(x) => (ok(), x).encode(env),
         Err(err) => (error(), err).encode(env),
     }
