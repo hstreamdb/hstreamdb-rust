@@ -202,10 +202,9 @@ fn try_append<'a>(
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer.send(Some((record, sender))).map_err(|_| {
-        log::warn!("nif appender send error: producer is closed");
-        terminated().encode(env)
-    })?;
+    producer
+        .send(Some((record, sender)))
+        .map_err(|_| terminated().encode(env))?;
     let receiver = receiver.blocking_recv().unwrap();
     Ok(ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
