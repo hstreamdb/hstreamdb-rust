@@ -8,7 +8,6 @@ use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
 use rustler::types::atom::{error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
-use tokio::sync::mpsc::channel;
 use tokio::sync::oneshot;
 
 mod runtime;
@@ -43,9 +42,7 @@ struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
-pub struct NifAppender(
-    tokio::sync::mpsc::Sender<Option<(Record, oneshot::Sender<AppendResultType>)>>,
-);
+pub struct NifAppender(flume::Sender<Option<(Record, oneshot::Sender<AppendResultType>)>>);
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
@@ -115,7 +112,7 @@ pub fn try_start_producer(
 ) -> hstreamdb::Result<ResourceArc<NifAppender>> {
     let (sender, receiver) = oneshot::channel();
     let (request_sender, request_receiver) =
-        channel::<Option<(Record, oneshot::Sender<AppendResultType>)>>(1);
+        flume::bounded::<Option<(Record, oneshot::Sender<AppendResultType>)>>(0);
     let ProducerSettings {
         compression_type,
         concurrency_limit,
@@ -144,17 +141,18 @@ pub fn try_start_producer(
                 .await?;
 
             _ = tokio::spawn(async move {
-                let mut request_receiver = request_receiver;
+                let request_receiver = request_receiver;
                 let mut appender = appender;
-                while let Some(record) = request_receiver.recv().await {
+                while let Ok(record) = request_receiver.recv_async().await {
                     match record {
                         Some((record, result_sender)) => {
                             let result_receiver = appender.append(record).await.unwrap();
                             result_sender.send(result_receiver).unwrap()
                         }
-                        None => request_receiver.close(),
+                        None => break,
                     }
                 }
+                drop(request_receiver)
             });
             _ = tokio::spawn(async move { producer.start().await });
             Ok::<(), hstreamdb::Error>(())
@@ -185,7 +183,7 @@ pub fn start_producer<'a>(
 #[rustler::nif]
 fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     let producer = &producer.0;
-    producer.blocking_send(None).unwrap_or(());
+    producer.send(None).unwrap_or(());
     ok()
 }
 
@@ -201,7 +199,7 @@ fn append(
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer.blocking_send(Some((record, sender))).unwrap();
+    producer.send(Some((record, sender))).unwrap();
     let receiver = receiver.blocking_recv().unwrap();
     ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
