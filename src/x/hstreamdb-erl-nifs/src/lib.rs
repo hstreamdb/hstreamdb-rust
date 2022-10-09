@@ -187,24 +187,38 @@ fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
     ok()
 }
 
-#[rustler::nif]
-fn append(
+fn try_append(
     producer: ResourceArc<NifAppender>,
     partition_key: String,
-    raw_payload: String,
-) -> ResourceArc<AppendResultFuture> {
+    raw_payload: Term,
+) -> hstreamdb::Result<ResourceArc<AppendResultFuture>> {
+    let raw_payload = rustler::Binary::from_term(raw_payload)
+        .map_err(|err| hstreamdb::common::Error::BadArgument(format!("{err:?}")))?;
     let record = Record {
         partition_key,
-        payload: hstreamdb::Payload::RawRecord(raw_payload.into_bytes()),
+        payload: hstreamdb::Payload::RawRecord(raw_payload.to_vec()),
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
     producer.send(Some((record, sender))).unwrap();
     let receiver = receiver.blocking_recv().unwrap();
-    ResourceArc::new(AppendResultFuture(
+    Ok(ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
         OnceCell::new(),
-    ))
+    )))
+}
+
+#[rustler::nif]
+fn append<'a>(
+    env: Env<'a>,
+    producer: ResourceArc<NifAppender>,
+    partition_key: String,
+    raw_payload: Term,
+) -> Term<'a> {
+    match try_append(producer, partition_key, raw_payload) {
+        Ok(x) => (ok(), x).encode(env),
+        Err(err) => (error(), err.to_string()).encode(env),
+    }
 }
 
 #[rustler::nif]
