@@ -58,9 +58,9 @@ pub enum Error {
     StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
     #[error("failed to unwrap `{0}`")]
     PBUnwrapError(String),
-    #[error("No channel is available")]
+    #[error("no channel is available")]
     NoChannelAvailable,
-    #[error("{0}")]
+    #[error("bad argument: {0}")]
     BadArgument(String),
     #[error(transparent)]
     AppenderSendError(producer::SendError),
