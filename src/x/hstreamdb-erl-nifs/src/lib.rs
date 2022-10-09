@@ -191,16 +191,18 @@ fn try_append(
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: Term,
-) -> hstreamdb::Result<ResourceArc<AppendResultFuture>> {
+) -> Result<ResourceArc<AppendResultFuture>, String> {
     let raw_payload = rustler::Binary::from_term(raw_payload)
-        .map_err(|err| hstreamdb::common::Error::BadArgument(format!("{err:?}")))?;
+        .map_err(|err| hstreamdb::common::Error::BadArgument(format!("{err:?}")).to_string())?;
     let record = Record {
         partition_key,
         payload: hstreamdb::Payload::RawRecord(raw_payload.to_vec()),
     };
     let producer = &producer.0;
     let (sender, receiver) = oneshot::channel();
-    producer.send(Some((record, sender))).unwrap();
+    producer
+        .send(Some((record, sender)))
+        .map_err(|_| "nif appender send error: producer is closed".to_string())?;
     let receiver = receiver.blocking_recv().unwrap();
     Ok(ResourceArc::new(AppendResultFuture(
         Mutex::new(Some(receiver)),
@@ -217,7 +219,7 @@ fn append<'a>(
 ) -> Term<'a> {
     match try_append(producer, partition_key, raw_payload) {
         Ok(x) => (ok(), x).encode(env),
-        Err(err) => (error(), err.to_string()).encode(env),
+        Err(err) => (error(), err).encode(env),
     }
 }
 
