@@ -1522,6 +1522,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "either",
+ "getrandom",
  "indexmap",
  "log",
  "prost",
