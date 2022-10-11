@@ -260,9 +260,6 @@ impl Producer {
                     }
                 }
                 Some(buffer) => {
-                    if let Some(x) = self.shard_buffer_timer.remove(&shard_id) {
-                        x.abort()
-                    }
                     self.shard_buffer_result
                         .get_mut(&shard_id)
                         .unwrap()

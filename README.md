@@ -13,8 +13,8 @@ This library is experimental and work in progress, please use the latest release
 
 | client library version | HStream server version     |
 | ---------------------- | -------------------------- |
-| `v0.1.*`               | >= `v0.9.4` && <= `v0.9.6` |
-| `v0.2.*`               | >= `v0.9.4` && <= `v0.9.6` |
+| `v0.1.*`               | >= `v0.9.4` && <= `v0.9.7` |
+| `v0.2.*`               | >= `v0.9.4` && <= `v0.9.7` |
 
 
 ## Example Usage
