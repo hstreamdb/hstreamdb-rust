@@ -230,14 +230,15 @@ fn async_append<'a>(
 fn async_await_append_result(pid: LocalPid, x: ResourceArc<AppendResultFuture>) {
     use crate::AppendResult::*;
     let future = async move {
-        let mut env = OwnedEnv::new();
         let result = &x.1;
         if result.get().is_none() {
-            let receiver: &Mutex<_> = &x.0;
-            let mut receiver: MutexGuard<Option<_>> = receiver.lock();
-            let receiver = mem::take(&mut (*receiver));
-            let append_result: Result<hstreamdb::RecordId, Arc<_>> =
-                receiver.unwrap().blocking_recv().unwrap();
+            let append_result = {
+                let receiver: &Mutex<_> = &x.0;
+                let mut receiver: MutexGuard<Option<_>> = receiver.lock();
+                mem::take(&mut (*receiver))
+            }
+            .unwrap();
+            let append_result = append_result.await.unwrap();
             let append_result = match append_result {
                 Ok(record_id) => RecordId(record_id),
                 Err(err) => Error(err.to_string()),
@@ -245,6 +246,7 @@ fn async_await_append_result(pid: LocalPid, x: ResourceArc<AppendResultFuture>) 
             result.set(append_result).unwrap()
         }
 
+        let mut env = OwnedEnv::new();
         env.send_and_clear(&pid, |env| match result.get().unwrap() {
             RecordId(record_id_v) => (
                 await_append_result_reply(),
