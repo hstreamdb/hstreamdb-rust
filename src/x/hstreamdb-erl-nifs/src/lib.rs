@@ -6,6 +6,7 @@ use hstreamdb::producer::{FlushCallback, FlushSettings};
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
+use runtime::TOKIO_RT;
 use rustler::types::atom::{badarg, error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
 use tokio::sync::oneshot;
@@ -19,7 +20,7 @@ rustler::atoms! {
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
     record_id,
-    create_stream_reply, start_producer_reply
+    create_stream_reply, start_producer_reply, append_reply
 }
 
 rustler::init!(
@@ -28,7 +29,7 @@ rustler::init!(
         async_create_stream,
         async_start_producer,
         stop_producer,
-        append,
+        async_append,
         await_append_result
     ],
     load = load
@@ -44,7 +45,7 @@ struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
 #[derive(Clone)]
-pub struct NifAppender(flume::Sender<Option<(Record, oneshot::Sender<AppendResultType>)>>);
+pub struct NifAppender(flume::Sender<Option<(Record, LocalPid)>>);
 
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
@@ -97,8 +98,7 @@ pub fn try_start_producer(
     stream_name: String,
     settings: Term,
 ) -> hstreamdb::common::Result<()> {
-    let (request_sender, request_receiver) =
-        flume::bounded::<Option<(Record, oneshot::Sender<AppendResultType>)>>(0);
+    let (request_sender, request_receiver) = flume::bounded::<Option<(Record, LocalPid)>>(0);
     let ProducerSettings {
         compression_type,
         concurrency_limit,
@@ -131,9 +131,16 @@ pub fn try_start_producer(
                 let mut appender = appender;
                 while let Ok(record) = request_receiver.recv_async().await {
                     match record {
-                        Some((record, result_sender)) => {
+                        Some((record, pid)) => {
                             let result_receiver = appender.append(record).await.unwrap();
-                            result_sender.send(result_receiver).unwrap()
+                            let result_future = ResourceArc::new(AppendResultFuture(
+                                Mutex::new(Some(result_receiver)),
+                                OnceCell::new(),
+                            ));
+                            let mut env = OwnedEnv::new();
+                            env.send_and_clear(&pid, |env| {
+                                (append_reply(), result_future).encode(env)
+                            })
                         }
                         None => break,
                     }
@@ -181,37 +188,41 @@ fn stop_producer(producer: ResourceArc<NifAppender>) -> Atom {
 
 fn try_append<'a>(
     env: Env<'a>,
+    pid: LocalPid,
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: Term,
-) -> Result<ResourceArc<AppendResultFuture>, Term<'a>> {
+) -> Result<(), Term<'a>> {
     let raw_payload = rustler::Binary::from_term(raw_payload)
-        .map_err(|err| (badarg(), format!("{err:?}")).encode(env))?;
-    let record = Record {
-        partition_key,
-        payload: hstreamdb::Payload::RawRecord(raw_payload.to_vec()),
+        .map_err(|err| (badarg(), format!("{err:?}")).encode(env))?
+        .to_vec();
+    let future = async move {
+        let record = Record {
+            partition_key,
+            payload: hstreamdb::Payload::RawRecord(raw_payload),
+        };
+        let producer = &producer.0;
+        if producer.send_async(Some((record, pid))).await.is_err() {
+            let mut env = OwnedEnv::new();
+            env.send_and_clear(&pid, |env| {
+                (append_reply(), error(), terminated()).encode(env)
+            })
+        }
     };
-    let producer = &producer.0;
-    let (sender, receiver) = oneshot::channel();
-    producer
-        .send(Some((record, sender)))
-        .map_err(|_| terminated().encode(env))?;
-    let receiver = receiver.blocking_recv().unwrap();
-    Ok(ResourceArc::new(AppendResultFuture(
-        Mutex::new(Some(receiver)),
-        OnceCell::new(),
-    )))
+    TOKIO_RT.spawn(future);
+    Ok(())
 }
 
 #[rustler::nif]
-fn append<'a>(
+fn async_append<'a>(
     env: Env<'a>,
+    pid: LocalPid,
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: Term,
 ) -> Term<'a> {
-    match try_append(env, producer, partition_key, raw_payload) {
-        Ok(x) => (ok(), x).encode(env),
+    match try_append(env, pid, producer, partition_key, raw_payload) {
+        Ok(()) => ok().encode(env),
         Err(err) => (error(), err).encode(env),
     }
 }
