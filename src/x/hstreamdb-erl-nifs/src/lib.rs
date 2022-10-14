@@ -18,14 +18,15 @@ rustler::atoms! {
     concurrency_limit, flow_control_size,
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
-    record_id
+    record_id,
+    create_stream_reply, start_producer_reply
 }
 
 rustler::init!(
     "hstreamdb",
     [
         async_create_stream,
-        start_producer,
+        async_start_producer,
         stop_producer,
         append,
         await_append_result
@@ -83,19 +84,19 @@ pub fn async_create_stream(
         .await;
         let mut env = OwnedEnv::new();
         env.send_and_clear(&pid, |env| match create_stream_result {
-            Ok(()) => ok().to_term(env),
-            Err(err) => err.to_string().encode(env),
+            Ok(()) => (create_stream_reply(), ok()).encode(env),
+            Err(err) => (create_stream_reply(), error(), err.to_string()).encode(env),
         });
     };
     runtime::spawn(future);
 }
 
 pub fn try_start_producer(
+    pid: LocalPid,
     url: String,
     stream_name: String,
     settings: Term,
-) -> hstreamdb::Result<ResourceArc<NifAppender>> {
-    let (sender, receiver) = oneshot::channel();
+) -> hstreamdb::common::Result<()> {
     let (request_sender, request_receiver) =
         flume::bounded::<Option<(Record, oneshot::Sender<AppendResultType>)>>(0);
     let ProducerSettings {
@@ -106,7 +107,7 @@ pub fn try_start_producer(
         on_flush_callback,
     } = ProducerSettings::new(settings)?;
     let future = async move {
-        let xs = async move {
+        let start_producer_result = async move {
             let mut client = Client::new(
                 url,
                 ChannelProviderSettings {
@@ -141,27 +142,33 @@ pub fn try_start_producer(
             });
             _ = tokio::spawn(async move { producer.start().await });
             Ok::<(), hstreamdb::Error>(())
-        };
-        let xs = xs.await;
-        sender.send(xs).unwrap()
+        }
+        .await;
+        let mut env = OwnedEnv::new();
+        env.send_and_clear(&pid, |env| match start_producer_result {
+            Ok(()) => (
+                start_producer_reply(),
+                ok(),
+                ResourceArc::new(NifAppender(request_sender)),
+            )
+                .encode(env),
+            Err(err) => (start_producer_reply(), error(), err.to_string()).encode(env),
+        })
     };
-    _ = runtime::spawn(future);
-
-    receiver
-        .blocking_recv()
-        .unwrap()
-        .map(|()| ResourceArc::new(NifAppender(request_sender)))
+    runtime::spawn(future);
+    Ok(())
 }
 
 #[rustler::nif]
-pub fn start_producer<'a>(
+pub fn async_start_producer<'a>(
     env: Env<'a>,
+    pid: LocalPid,
     url: String,
     stream_name: String,
     settings: Term,
 ) -> NifResult<Term<'a>> {
-    try_start_producer(url, stream_name, settings)
-        .map(|x| Encoder::encode(&(ok(), x), env))
+    try_start_producer(pid, url, stream_name, settings)
+        .map(|()| ok().to_term(env))
         .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
 
