@@ -138,7 +138,7 @@ pub fn try_start_producer(
                             ));
                             let mut env = OwnedEnv::new();
                             env.send_and_clear(&pid, |env| {
-                                (append_reply(), result_future).encode(env)
+                                (append_reply(), ok(), result_future).encode(env)
                             })
                         }
                         None => break,
