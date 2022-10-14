@@ -6,7 +6,6 @@ use hstreamdb::producer::{FlushCallback, FlushSettings};
 use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, MutexGuard};
-use runtime::TOKIO_RT;
 use rustler::types::atom::{badarg, error, ok};
 use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
 use tokio::sync::oneshot;
@@ -20,7 +19,7 @@ rustler::atoms! {
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
     record_id,
-    create_stream_reply, start_producer_reply, append_reply
+    create_stream_reply, start_producer_reply, append_reply, await_append_result_reply
 }
 
 rustler::init!(
@@ -30,7 +29,7 @@ rustler::init!(
         async_start_producer,
         stop_producer,
         async_append,
-        await_append_result
+        async_await_append_result
     ],
     load = load
 );
@@ -209,7 +208,7 @@ fn try_append<'a>(
             })
         }
     };
-    TOKIO_RT.spawn(future);
+    runtime::spawn(future);
     Ok(())
 }
 
@@ -228,36 +227,40 @@ fn async_append<'a>(
 }
 
 #[rustler::nif]
-fn await_append_result(env: Env, x: ResourceArc<AppendResultFuture>) -> Term {
+fn async_await_append_result(pid: LocalPid, x: ResourceArc<AppendResultFuture>) {
     use crate::AppendResult::*;
-    let result = &x.1;
+    let future = async move {
+        let mut env = OwnedEnv::new();
+        let result = &x.1;
+        if result.get().is_none() {
+            let receiver: &Mutex<_> = &x.0;
+            let mut receiver: MutexGuard<Option<_>> = receiver.lock();
+            let receiver = mem::take(&mut (*receiver));
+            let append_result: Result<hstreamdb::RecordId, Arc<_>> =
+                receiver.unwrap().blocking_recv().unwrap();
+            let append_result = match append_result {
+                Ok(record_id) => RecordId(record_id),
+                Err(err) => Error(err.to_string()),
+            };
+            result.set(append_result).unwrap()
+        }
 
-    if result.get().is_none() {
-        let receiver: &Mutex<_> = &x.0;
-        let mut receiver: MutexGuard<Option<_>> = receiver.lock();
-        let receiver = mem::take(&mut (*receiver));
-        let append_result: Result<hstreamdb::RecordId, Arc<_>> =
-            receiver.unwrap().blocking_recv().unwrap();
-        let append_result = match append_result {
-            Ok(record_id) => RecordId(record_id),
-            Err(err) => Error(err.to_string()),
-        };
-        result.set(append_result).unwrap()
-    }
-
-    match result.get().unwrap() {
-        RecordId(record_id_v) => (
-            ok(),
-            (
-                record_id(),
-                record_id_v.shard_id,
-                record_id_v.batch_id,
-                record_id_v.batch_index,
-            ),
-        )
-            .encode(env),
-        Error(err) => (error(), err.to_string()).encode(env),
-    }
+        env.send_and_clear(&pid, |env| match result.get().unwrap() {
+            RecordId(record_id_v) => (
+                await_append_result_reply(),
+                ok(),
+                (
+                    record_id(),
+                    record_id_v.shard_id,
+                    record_id_v.batch_id,
+                    record_id_v.batch_index,
+                ),
+            )
+                .encode(env),
+            Error(err) => (await_append_result_reply(), error(), err.to_string()).encode(env),
+        })
+    };
+    runtime::spawn(future);
 }
 
 fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
