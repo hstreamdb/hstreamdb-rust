@@ -24,7 +24,7 @@ rustler::atoms! {
 rustler::init!(
     "hstreamdb",
     [
-        create_stream,
+        async_create_stream,
         start_producer,
         stop_producer,
         append,
@@ -52,16 +52,17 @@ fn load(env: Env, _: Term) -> bool {
     true
 }
 
-pub fn try_create_stream(
+#[rustler::nif]
+pub fn async_create_stream(
+    pid: LocalPid,
     url: String,
     stream_name: String,
     replication_factor: u32,
     backlog_duration: u32,
     shard_count: u32,
-) -> hstreamdb::Result<()> {
-    let (sender, receiver) = oneshot::channel();
+) {
     let future = async move {
-        let xs = async move {
+        let create_stream_result = async move {
             let mut client = Client::new(
                 url,
                 ChannelProviderSettings {
@@ -78,32 +79,15 @@ pub fn try_create_stream(
                 })
                 .await?;
             Ok::<(), hstreamdb::Error>(())
-        };
-        let xs = xs.await;
-        sender.send(xs).unwrap()
+        }
+        .await;
+        let mut env = OwnedEnv::new();
+        env.send_and_clear(&pid, |env| match create_stream_result {
+            Ok(()) => ok().to_term(env),
+            Err(err) => err.to_string().encode(env),
+        });
     };
-    _ = runtime::spawn(future);
-    receiver.blocking_recv().unwrap()
-}
-
-#[rustler::nif]
-pub fn create_stream(
-    env: Env,
-    url: String,
-    stream_name: String,
-    replication_factor: u32,
-    backlog_duration: u32,
-    shard_count: u32,
-) -> NifResult<Term> {
-    try_create_stream(
-        url,
-        stream_name,
-        replication_factor,
-        backlog_duration,
-        shard_count,
-    )
-    .map(|()| ok().to_term(env))
-    .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
+    runtime::spawn(future);
 }
 
 pub fn try_start_producer(
