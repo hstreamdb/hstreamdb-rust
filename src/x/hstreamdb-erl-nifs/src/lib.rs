@@ -49,7 +49,6 @@ pub struct NifAppender(flume::Sender<Option<(Record, LocalPid)>>);
 fn load(env: Env, _: Term) -> bool {
     resource!(NifAppender, env);
     resource!(AppendResultFuture, env);
-    env_logger::init();
     true
 }
 
