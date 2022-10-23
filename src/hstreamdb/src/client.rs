@@ -15,7 +15,7 @@ use crate::{common, flow_controller, format_url, producer};
 
 pub struct Client {
     pub(crate) channels: Channels,
-    url_scheme: String,
+    pub(crate) url_scheme: String,
 }
 
 impl Client {

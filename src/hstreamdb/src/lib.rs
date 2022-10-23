@@ -7,9 +7,11 @@ pub mod common;
 pub mod consumer;
 mod flow_controller;
 pub mod producer;
+pub mod reader;
 pub mod utils;
 
 pub use channel_provider::ChannelProviderSettings;
 pub use common::{
-    CompressionType, Error, Payload, Record, RecordId, Result, SpecialOffset, Stream, Subscription,
+    CompressionType, Error, Payload, Record, RecordId, Result, ShardId, SpecialOffset, Stream,
+    StreamShardOffset, Subscription,
 };

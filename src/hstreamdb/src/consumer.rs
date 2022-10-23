@@ -1,11 +1,5 @@
-use std::io::Write;
-
-use flate2::write::GzDecoder;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
-use hstreamdb_pb::{
-    BatchHStreamRecords, BatchedRecord, HStreamRecord, StreamingFetchRequest,
-    StreamingFetchResponse,
-};
+use hstreamdb_pb::{StreamingFetchRequest, StreamingFetchResponse};
 use prost::Message;
 use prost_types::Struct;
 use tokio::sync::mpsc::error::SendError;
@@ -15,6 +9,7 @@ use tonic::{Request, Streaming};
 
 use crate::client::Client;
 use crate::common::{self, Payload};
+use crate::utils::decode_received_records;
 
 impl Client {
     pub async fn streaming_fetch(
@@ -97,15 +92,12 @@ fn process_streaming_fetch_response(
         None => {
             log::warn!("streaming fetch error: failed to unwrap `received_records`");
         }
-        Some(received_records) => match decode_received_records(
-            received_records.record,
-            received_records.record_ids.is_empty(),
-        ) {
+        Some(received_records) => match decode_received_records(received_records) {
             Err(err) => {
                 log::error!("decode received records error: {err}")
             }
             Ok(records) => {
-                for (record, record_id) in records.into_iter().zip(received_records.record_ids) {
+                for (record_id, record) in records {
                     let record = match record.header {
                         None => {
                             log::error!(
@@ -147,42 +139,5 @@ fn process_streaming_fetch_response(
                 }
             }
         },
-    }
-}
-
-fn decode_received_records(
-    received_records: Option<BatchedRecord>,
-    is_empty: bool,
-) -> Result<Vec<HStreamRecord>, String> {
-    if is_empty {
-        Ok(Vec::new())
-    } else {
-        match received_records {
-            None => {
-                Err("decode received records error: failed to unwrap batched record".to_string())
-            }
-            Some(record) => {
-                let compression_type = record.compression_type();
-                let payload = {
-                    let payload = record.payload;
-                    match compression_type {
-                        hstreamdb_pb::CompressionType::None => Ok(payload),
-                        hstreamdb_pb::CompressionType::Gzip => {
-                            let mut decoder = GzDecoder::new(Vec::new());
-                            decoder.write_all(&payload).map_err(|err| err.to_string())?;
-                            decoder.finish().map_err(|err| err.to_string())
-                        }
-                        hstreamdb_pb::CompressionType::Zstd => {
-                            zstd::decode_all(payload.as_slice()).map_err(|err| err.to_string())
-                        }
-                    }
-                }?;
-
-                let records = BatchHStreamRecords::decode(payload.as_slice())
-                    .map_err(|err| err.to_string())?
-                    .records;
-                Ok(records)
-            }
-        }
     }
 }

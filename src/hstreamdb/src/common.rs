@@ -3,7 +3,7 @@ use std::io;
 use hstreamdb_pb::StreamingFetchRequest;
 pub use hstreamdb_pb::{CompressionType, RecordId, SpecialOffset, Stream};
 use num_bigint::ParseBigIntError;
-use prost::Message;
+use prost::{DecodeError, Message};
 use tonic::transport;
 
 use crate::producer;
@@ -15,6 +15,28 @@ pub struct Subscription {
     pub ack_timeout_seconds: i32,
     pub max_unacked_records: i32,
     pub offset: SpecialOffset,
+}
+
+#[derive(Debug, Clone)]
+pub enum StreamShardOffset {
+    Special(SpecialOffset),
+    Normal(RecordId),
+}
+
+impl From<StreamShardOffset> for hstreamdb_pb::ShardOffset {
+    fn from(stream_shard_offset: StreamShardOffset) -> Self {
+        let offset = match stream_shard_offset {
+            StreamShardOffset::Special(offset) => {
+                hstreamdb_pb::shard_offset::Offset::SpecialOffset(offset.into())
+            }
+            StreamShardOffset::Normal(offset) => {
+                hstreamdb_pb::shard_offset::Offset::RecordOffset(offset)
+            }
+        };
+        hstreamdb_pb::ShardOffset {
+            offset: Some(offset),
+        }
+    }
 }
 
 impl From<Subscription> for hstreamdb_pb::Subscription {
@@ -51,6 +73,8 @@ pub enum Error {
     #[error(transparent)]
     CompressError(io::Error),
     #[error(transparent)]
+    DecompressError(io::Error),
+    #[error(transparent)]
     ParseUrlError(url::ParseError),
     #[error(transparent)]
     PartitionKeyError(PartitionKeyError),
@@ -58,6 +82,8 @@ pub enum Error {
     StreamingFetchInitError(tokio::sync::mpsc::error::SendError<StreamingFetchRequest>),
     #[error("failed to unwrap `{0}`")]
     PBUnwrapError(String),
+    #[error(transparent)]
+    PBDecodeError(DecodeError),
     #[error("no channel is available")]
     NoChannelAvailable,
     #[error("bad argument: {0}")]
@@ -139,5 +165,5 @@ impl From<prost_types::Struct> for Payload {
     }
 }
 
-pub(crate) type ShardId = u64;
+pub type ShardId = u64;
 pub type PartitionKey = String;

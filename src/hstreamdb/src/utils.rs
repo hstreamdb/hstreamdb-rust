@@ -1,8 +1,14 @@
+use std::io::Write;
+
+use flate2::write::GzDecoder;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
-use hstreamdb_pb::{LookupShardRequest, Shard};
+use hstreamdb_pb::{
+    BatchHStreamRecords, HStreamRecord, LookupShardRequest, ReceivedRecord, RecordId, Shard,
+};
 use md5::{Digest, Md5};
 use num_bigint::BigInt;
 use num_traits::Num;
+use prost::Message;
 use tonic::transport::Channel;
 
 use crate::common::{self, PartitionKey, ShardId};
@@ -61,11 +67,54 @@ pub fn partition_key_to_shard_id(
     ))
 }
 
+pub(crate) fn decode_received_records(
+    received_records: ReceivedRecord,
+) -> common::Result<Vec<(RecordId, HStreamRecord)>> {
+    let is_empty = received_records.record_ids.is_empty();
+    let record_ids = received_records.record_ids;
+    let received_records = received_records.record;
+    if is_empty {
+        Ok(Vec::new())
+    } else {
+        match received_records {
+            None => Err(common::Error::PBUnwrapError(
+                "received_records.record".to_string(),
+            )),
+            Some(record) => {
+                let compression_type = record.compression_type();
+                let payload = {
+                    let payload = record.payload;
+                    match compression_type {
+                        hstreamdb_pb::CompressionType::None => Ok(payload),
+                        hstreamdb_pb::CompressionType::Gzip => {
+                            let mut decoder = GzDecoder::new(Vec::new());
+                            decoder
+                                .write_all(&payload)
+                                .map_err(common::Error::DecompressError)?;
+                            decoder.finish().map_err(common::Error::DecompressError)
+                        }
+                        hstreamdb_pb::CompressionType::Zstd => zstd::decode_all(payload.as_slice())
+                            .map_err(common::Error::DecompressError),
+                    }
+                }?;
+
+                let records = BatchHStreamRecords::decode(payload.as_slice())
+                    .map_err(common::Error::PBDecodeError)?
+                    .records;
+                Ok(record_ids.into_iter().zip(records).collect())
+            }
+        }
+    }
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! format_url {
     ($scheme:expr, $host:expr, $port:expr) => {
         format!("{}://{}:{}", $scheme, $host, $port)
+    };
+    ($scheme:expr, $server_node:expr) => {
+        format_url!($scheme, $server_node.host, $server_node.port)
     };
 }
 
