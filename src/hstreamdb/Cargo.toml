@@ -27,7 +27,7 @@ prost-types = "0.11.1"
 prost = "0.11.0"
 tokio = { version = "1.21.0", features = ["rt-multi-thread", "parking_lot"] }
 tokio-stream = "0.1.9"
-tonic = "0.8.0"
+tonic = { version = "0.8.2", features = ["tls"] }
 url = "2.2.2"
 workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 

@@ -118,14 +118,9 @@ mod tests {
         env_logger::init();
 
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+            .await
+            .unwrap();
         let stream_name = format!("stream-{}", rand_alphanumeric(10));
         client
             .create_stream(Stream {
@@ -145,9 +140,7 @@ mod tests {
                     .set_max_batch_len(100)
                     .set_batch_deadline(1000)
                     .build(),
-                ChannelProviderSettings {
-                    concurrency_limit: None,
-                },
+                ChannelProviderSettings::builder().build(),
                 None,
             )
             .await

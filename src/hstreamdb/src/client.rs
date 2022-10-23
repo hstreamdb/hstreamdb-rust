@@ -242,14 +242,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+            .await
+            .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,
@@ -282,14 +277,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_subscription_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+            .await
+            .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,

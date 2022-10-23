@@ -14,9 +14,9 @@ async fn test_producer() {
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
     let mut client = Client::new(
         addr,
-        ChannelProviderSettings {
-            concurrency_limit: Some(8),
-        },
+        ChannelProviderSettings::builder()
+            .set_concurrency_limit(8)
+            .build(),
     )
     .await
     .unwrap();
@@ -40,9 +40,9 @@ async fn test_producer() {
                 .set_max_batch_len(10)
                 .set_max_batch_size(10 * 4 * 1024)
                 .build(),
-            ChannelProviderSettings {
-                concurrency_limit: Some(8),
-            },
+            ChannelProviderSettings::builder()
+                .set_concurrency_limit(8)
+                .build(),
             None,
         )
         .await

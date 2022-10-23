@@ -64,13 +64,7 @@ pub fn async_create_stream(
 ) {
     let future = async move {
         let create_stream_result = async move {
-            let mut client = Client::new(
-                url,
-                ChannelProviderSettings {
-                    concurrency_limit: None,
-                },
-            )
-            .await?;
+            let mut client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
             client
                 .create_stream(Stream {
                     stream_name,
@@ -105,22 +99,24 @@ pub fn try_start_producer(
         flush_settings,
         on_flush_callback,
     } = ProducerSettings::new(settings)?;
+    let channel_provider_settings = {
+        let mut channel_provider_settings = ChannelProviderSettings::builder();
+        if let Some(concurrency_limit) = concurrency_limit {
+            channel_provider_settings =
+                channel_provider_settings.set_concurrency_limit(concurrency_limit)
+        }
+        channel_provider_settings
+    };
     let future = async move {
         let start_producer_result = async move {
-            let mut client = Client::new(
-                url,
-                ChannelProviderSettings {
-                    concurrency_limit: None,
-                },
-            )
-            .await?;
+            let mut client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
             let (appender, producer) = client
                 .new_producer(
                     stream_name,
                     compression_type,
                     flow_control_size,
                     flush_settings,
-                    ChannelProviderSettings { concurrency_limit },
+                    channel_provider_settings.build(),
                     on_flush_callback,
                 )
                 .await?;
