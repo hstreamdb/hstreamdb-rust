@@ -71,7 +71,7 @@ impl Channels {
 #[derive(Debug, Default)]
 pub struct ChannelProviderSettings {
     concurrency_limit: Option<usize>,
-    client_tls_config: Option<ClientTlsConfig>,
+    pub(crate) client_tls_config: Option<ClientTlsConfig>,
 }
 
 pub struct ChannelProviderSettingsBuilder(ChannelProviderSettings);

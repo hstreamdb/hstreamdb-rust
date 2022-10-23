@@ -26,8 +26,20 @@ impl Client {
     where
         Destination: std::convert::Into<String>,
     {
+        const HSTREAM_PREFIX: &str = "hstream";
         let server_url = server_url.into();
-        let url = Url::parse(&server_url)?;
+        let url = {
+            let mut url = Url::parse(&server_url)?;
+            if url.scheme() == HSTREAM_PREFIX {
+                url.set_scheme(if channel_provider_settings.client_tls_config.is_none() {
+                    "http"
+                } else {
+                    "https"
+                })
+                .unwrap()
+            }
+            url
+        };
         let mut hstream_api_client = HStreamApiClient::connect(server_url).await?;
         let url_scheme = url.scheme().to_string();
         let channels = new_channel_provider(
