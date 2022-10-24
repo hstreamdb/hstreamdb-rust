@@ -26,10 +26,26 @@ impl Client {
     where
         Destination: std::convert::Into<String>,
     {
+        const HSTREAM_PREFIX: &str = "hstream";
         let server_url = server_url.into();
-        let url = Url::parse(&server_url)?;
-        let mut hstream_api_client = HStreamApiClient::connect(server_url).await?;
-        let url_scheme = url.scheme().to_string();
+        let (url_scheme, url) = {
+            let url = Url::parse(&server_url)?;
+            if url.scheme() == HSTREAM_PREFIX {
+                let url_scheme = if channel_provider_settings.client_tls_config.is_none() {
+                    "http"
+                } else {
+                    "https"
+                };
+                let server_url = &server_url[7..];
+                (
+                    url_scheme.to_string(),
+                    Url::parse(format!("{url_scheme}{server_url}").as_str())?,
+                )
+            } else {
+                (url.scheme().to_string(), url)
+            }
+        };
+        let mut hstream_api_client = HStreamApiClient::connect(String::from(url)).await?;
         let channels = new_channel_provider(
             &url_scheme,
             &mut hstream_api_client,
@@ -242,14 +258,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+            .await
+            .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,
@@ -282,14 +293,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_subscription_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(
-            addr,
-            ChannelProviderSettings {
-                concurrency_limit: None,
-            },
-        )
-        .await
-        .unwrap();
+        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+            .await
+            .unwrap();
 
         let make_stream = |stream_name| Stream {
             stream_name,

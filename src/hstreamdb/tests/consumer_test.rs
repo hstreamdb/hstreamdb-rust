@@ -15,9 +15,9 @@ async fn test_consumer() {
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
     let mut client = Client::new(
         addr,
-        ChannelProviderSettings {
-            concurrency_limit: Some(8),
-        },
+        ChannelProviderSettings::builder()
+            .set_concurrency_limit(8)
+            .build(),
     )
     .await
     .unwrap();
@@ -51,9 +51,9 @@ async fn test_consumer() {
             hstreamdb_pb::CompressionType::Zstd,
             None,
             FlushSettings::builder().set_max_batch_len(10).build(),
-            ChannelProviderSettings {
-                concurrency_limit: Some(8),
-            },
+            ChannelProviderSettings::builder()
+                .set_concurrency_limit(8)
+                .build(),
             None,
         )
         .await

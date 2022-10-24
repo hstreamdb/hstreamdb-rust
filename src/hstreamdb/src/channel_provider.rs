@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::default::default;
 use std::iter::FromIterator;
 
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
 use crate::client::get_available_node_addrs;
 use crate::common;
@@ -67,8 +68,39 @@ impl Channels {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct ChannelProviderSettings {
-    pub concurrency_limit: Option<usize>,
+    concurrency_limit: Option<usize>,
+    pub(crate) client_tls_config: Option<ClientTlsConfig>,
+}
+
+pub struct ChannelProviderSettingsBuilder(ChannelProviderSettings);
+
+impl ChannelProviderSettings {
+    pub fn builder() -> ChannelProviderSettingsBuilder {
+        ChannelProviderSettingsBuilder(default())
+    }
+}
+
+impl ChannelProviderSettingsBuilder {
+    pub fn build(self) -> ChannelProviderSettings {
+        let ChannelProviderSettingsBuilder(channel_provider_settings) = self;
+        channel_provider_settings
+    }
+
+    pub fn set_concurrency_limit(self, concurrency_limit: usize) -> Self {
+        Self(ChannelProviderSettings {
+            concurrency_limit: Some(concurrency_limit),
+            ..self.0
+        })
+    }
+
+    pub fn set_client_tls_config(self, client_tls_config: ClientTlsConfig) -> Self {
+        Self(ChannelProviderSettings {
+            client_tls_config: Some(client_tls_config),
+            ..self.0
+        })
+    }
 }
 
 impl ChannelProvider {
@@ -90,6 +122,9 @@ impl ChannelProvider {
                     let uri = endpoint.uri().clone();
                     if let Some(concurrency_limit) = settings.concurrency_limit {
                         endpoint = endpoint.concurrency_limit(concurrency_limit)
+                    }
+                    if let Some(client_tls_config) = settings.client_tls_config.clone() {
+                        endpoint = endpoint.tls_config(client_tls_config)?
                     }
                     match endpoint.connect().await {
                         Err(err) => {
