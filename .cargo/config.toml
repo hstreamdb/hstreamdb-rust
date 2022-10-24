@@ -1,4 +1,4 @@
 [env]
 RUST_LOG = "hstreamdb"
 
-TEST_SERVER_ADDR = "http://127.0.0.1:6570"
+TEST_SERVER_ADDR = "hstream://127.0.0.1:6570"

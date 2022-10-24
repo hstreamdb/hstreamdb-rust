@@ -28,20 +28,24 @@ impl Client {
     {
         const HSTREAM_PREFIX: &str = "hstream";
         let server_url = server_url.into();
-        let url = {
-            let mut url = Url::parse(&server_url)?;
+        let (url_scheme, url) = {
+            let url = Url::parse(&server_url)?;
             if url.scheme() == HSTREAM_PREFIX {
-                url.set_scheme(if channel_provider_settings.client_tls_config.is_none() {
+                let url_scheme = if channel_provider_settings.client_tls_config.is_none() {
                     "http"
                 } else {
                     "https"
-                })
-                .unwrap()
+                };
+                let server_url = &server_url[7..];
+                (
+                    url_scheme.to_string(),
+                    Url::parse(format!("{url_scheme}{server_url}").as_str())?,
+                )
+            } else {
+                (url.scheme().to_string(), url)
             }
-            url
         };
-        let mut hstream_api_client = HStreamApiClient::connect(server_url).await?;
-        let url_scheme = url.scheme().to_string();
+        let mut hstream_api_client = HStreamApiClient::connect(String::from(url)).await?;
         let channels = new_channel_provider(
             &url_scheme,
             &mut hstream_api_client,
