@@ -191,7 +191,7 @@ fn async_stop_producer(pid: LocalPid, producer: ResourceArc<NifAppender>) {
             Err(_) => (stop_producer_reply(), error(), terminated()).encode(env),
         })
     };
-    tokio::spawn(future);
+    runtime::spawn(future);
 }
 
 fn try_append<'a>(
