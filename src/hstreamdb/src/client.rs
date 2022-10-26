@@ -94,19 +94,13 @@ pub(crate) async fn get_available_node_addrs(
 }
 
 impl Client {
-    async fn _maintain_available_node_addrs(&mut self) -> common::Result<()> {
-        Ok(())
-    }
-}
-
-impl Client {
-    pub async fn create_stream(&mut self, stream: Stream) -> common::Result<()> {
+    pub async fn create_stream(&self, stream: Stream) -> common::Result<()> {
         self.channels.channel().await.create_stream(stream).await?;
         Ok(())
     }
 
     pub async fn delete_stream(
-        &mut self,
+        &self,
         stream_name: String,
         ignore_non_exist: bool,
         force: bool,
@@ -124,7 +118,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn list_streams(&mut self) -> common::Result<Vec<Stream>> {
+    pub async fn list_streams(&self) -> common::Result<Vec<Stream>> {
         let streams = self
             .channels
             .channel()
@@ -138,7 +132,7 @@ impl Client {
 }
 
 impl Client {
-    pub async fn create_subscription(&mut self, subscription: Subscription) -> common::Result<()> {
+    pub async fn create_subscription(&self, subscription: Subscription) -> common::Result<()> {
         let subscription: hstreamdb_pb::Subscription = subscription.into();
         self.channels
             .channel()
@@ -149,7 +143,7 @@ impl Client {
     }
 
     pub async fn delete_subscription(
-        &mut self,
+        &self,
         subscription_id: String,
         force: bool,
     ) -> common::Result<()> {
@@ -164,7 +158,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn list_subscriptions(&mut self) -> common::Result<Vec<Subscription>> {
+    pub async fn list_subscriptions(&self) -> common::Result<Vec<Subscription>> {
         let subscriptions = self
             .channels
             .channel()
@@ -182,7 +176,7 @@ impl Client {
 
 impl Client {
     pub async fn new_producer(
-        &mut self,
+        &self,
         stream_name: String,
         compression_type: CompressionType,
         flow_control_bytes_limit: Option<usize>,
@@ -221,7 +215,7 @@ impl Client {
 
 impl Client {
     pub(crate) async fn lookup_subscription(
-        &mut self,
+        &self,
         subscription_id: String,
     ) -> common::Result<String> {
         let server_node = self
@@ -258,7 +252,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_stream_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+        let client = Client::new(addr, ChannelProviderSettings::builder().build())
             .await
             .unwrap();
 
@@ -293,7 +287,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_subscription_cld() {
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+        let client = Client::new(addr, ChannelProviderSettings::builder().build())
             .await
             .unwrap();
 

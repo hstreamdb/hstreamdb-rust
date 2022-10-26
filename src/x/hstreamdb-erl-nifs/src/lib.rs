@@ -65,7 +65,7 @@ pub fn async_create_stream(
 ) {
     let future = async move {
         let create_stream_result = async move {
-            let mut client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
             client
                 .create_stream(Stream {
                     stream_name,
@@ -111,7 +111,7 @@ pub fn try_start_producer(
     };
     let future = async move {
         let start_producer_result = async move {
-            let mut client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
             let (appender, producer) = client
                 .new_producer(
                     stream_name,
