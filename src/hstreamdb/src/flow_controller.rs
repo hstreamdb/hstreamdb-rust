@@ -118,7 +118,7 @@ mod tests {
         env_logger::init();
 
         let addr = env::var("TEST_SERVER_ADDR").unwrap();
-        let mut client = Client::new(addr, ChannelProviderSettings::builder().build())
+        let client = Client::new(addr, ChannelProviderSettings::builder().build())
             .await
             .unwrap();
         let stream_name = format!("stream-{}", rand_alphanumeric(10));
