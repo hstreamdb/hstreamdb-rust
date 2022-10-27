@@ -13,7 +13,7 @@ async fn test_consumer() {
     env_logger::init();
 
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
-    let mut client = Client::new(
+    let client = Client::new(
         addr,
         ChannelProviderSettings::builder()
             .set_concurrency_limit(8)

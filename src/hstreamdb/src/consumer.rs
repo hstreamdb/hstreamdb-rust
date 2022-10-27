@@ -13,7 +13,7 @@ use crate::utils::decode_received_records;
 
 impl Client {
     pub async fn streaming_fetch(
-        &mut self,
+        &self,
         consumer_name: String,
         subscription_id: String,
     ) -> common::Result<UnboundedReceiverStream<(Payload, Responder)>> {
