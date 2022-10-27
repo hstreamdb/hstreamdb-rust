@@ -16,7 +16,7 @@ impl Client {
         &mut self,
         consumer_name: String,
         subscription_id: String,
-    ) -> common::Result<UnboundedReceiverStream<(Payload, AckFn)>> {
+    ) -> common::Result<UnboundedReceiverStream<(Payload, Responder)>> {
         let channel = self.lookup_subscription(subscription_id.clone()).await?;
         let mut channel = HStreamApiClient::connect(channel).await?;
 
@@ -36,7 +36,7 @@ impl Client {
             .send(request)
             .map_err(common::Error::StreamingFetchInitError)?;
 
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(Payload, AckFn)>();
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(Payload, Responder)>();
 
         _ = tokio::spawn(fetching(
             consumer_name,
@@ -55,7 +55,7 @@ async fn fetching(
     subscription_id: String,
     ack_sender: UnboundedSender<StreamingFetchRequest>,
     mut init_response: Streaming<StreamingFetchResponse>,
-    fetch_stream: UnboundedSender<(Payload, AckFn)>,
+    fetch_stream: UnboundedSender<(Payload, Responder)>,
 ) {
     loop {
         match init_response.message().await {
@@ -79,14 +79,26 @@ async fn fetching(
     }
 }
 
-pub type AckFn = Box<dyn FnOnce() -> Result<(), SendError<StreamingFetchRequest>> + Send>;
+type AckFn = Box<dyn FnOnce() -> Result<(), SendError<StreamingFetchRequest>> + Send>;
+
+pub struct Responder(AckFn);
+
+impl Responder {
+    pub fn ack(self) -> Result<(), SendError<StreamingFetchRequest>> {
+        self.0()
+    }
+
+    fn new(ack_fn: AckFn) -> Self {
+        Responder(ack_fn)
+    }
+}
 
 fn process_streaming_fetch_response(
     consumer_name: String,
     subscription_id: String,
     message: StreamingFetchResponse,
     ack_sender: UnboundedSender<StreamingFetchRequest>,
-    fetch_stream: UnboundedSender<(Payload, AckFn)>,
+    fetch_stream: UnboundedSender<(Payload, Responder)>,
 ) {
     match message.received_records {
         None => {
@@ -130,7 +142,7 @@ fn process_streaming_fetch_response(
                             ack_ids: vec![record_id],
                         })
                     });
-                    match fetch_stream.send((record, ack_fn)) {
+                    match fetch_stream.send((record, Responder::new(ack_fn))) {
                         Ok(()) => (),
                         Err(err) => {
                             log::error!("send to fetch stream error: {err}")

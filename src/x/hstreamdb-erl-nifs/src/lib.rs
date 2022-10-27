@@ -20,7 +20,10 @@ rustler::atoms! {
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
     record_id,
-    create_stream_reply, start_producer_reply, append_reply, await_append_result_reply, stop_producer_reply
+    start_client_reply,
+    create_stream_reply,
+    start_producer_reply, stop_producer_reply,
+    append_reply, await_append_result_reply,
 }
 
 rustler::init!(
@@ -41,13 +44,16 @@ enum AppendResult {
     Error(String),
 }
 
+struct NifClient(hstreamdb::Client);
+
 struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult>);
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
-#[derive(Clone)]
-pub struct NifAppender(flume::Sender<(Record, LocalPid)>, flume::Sender<()>);
+
+struct NifAppender(flume::Sender<(Record, LocalPid)>, flume::Sender<()>);
 
 fn load(env: Env, _: Term) -> bool {
+    resource!(NifClient, env);
     resource!(NifAppender, env);
     resource!(AppendResultFuture, env);
     env_logger::init();
@@ -55,9 +61,26 @@ fn load(env: Env, _: Term) -> bool {
 }
 
 #[rustler::nif]
-pub fn async_create_stream(
+fn async_start_client(pid: LocalPid, url: String, _conf: Term) {
+    let future = async move {
+        let client = Client::new(url, ChannelProviderSettings::builder().build()).await;
+        OwnedEnv::new().send_and_clear(&pid, |env| match client {
+            Ok(client) => (
+                start_client_reply(),
+                ok(),
+                ResourceArc::new(NifClient(client)),
+            )
+                .encode(env),
+            Err(err) => (start_client_reply(), error(), err.to_string()).encode(env),
+        })
+    };
+    runtime::spawn(future);
+}
+
+#[rustler::nif]
+fn async_create_stream(
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     replication_factor: u32,
     backlog_duration: u32,
@@ -65,7 +88,7 @@ pub fn async_create_stream(
 ) {
     let future = async move {
         let create_stream_result = async move {
-            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = &client.0;
             client
                 .create_stream(Stream {
                     stream_name,
@@ -86,9 +109,9 @@ pub fn async_create_stream(
     runtime::spawn(future);
 }
 
-pub fn try_start_producer(
+fn try_start_producer(
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
 ) -> hstreamdb::common::Result<()> {
@@ -111,7 +134,7 @@ pub fn try_start_producer(
     };
     let future = async move {
         let start_producer_result = async move {
-            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = &client.0;
             let (appender, producer) = client
                 .new_producer(
                     stream_name,
@@ -169,14 +192,14 @@ async fn handle_append(appender: &mut Appender, record: Record, pid: &LocalPid) 
 }
 
 #[rustler::nif]
-pub fn async_start_producer<'a>(
+fn async_start_producer<'a>(
     env: Env<'a>,
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
 ) -> NifResult<Term<'a>> {
-    try_start_producer(pid, url, stream_name, settings)
+    try_start_producer(pid, client, stream_name, settings)
         .map(|()| ok().to_term(env))
         .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
