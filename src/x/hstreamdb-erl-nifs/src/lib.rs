@@ -4,7 +4,9 @@ use std::sync::Arc;
 use hstreamdb::appender::Appender;
 use hstreamdb::client::Client;
 use hstreamdb::producer::{FlushCallback, FlushSettings};
-use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
+use hstreamdb::{
+    ChannelProviderSettings, CompressionType, Record, RecordId, SpecialOffset, Stream, Subscription,
+};
 use once_cell::sync::OnceCell;
 use prost::Message;
 use rustler::types::atom::{badarg, error, ok};
@@ -27,6 +29,8 @@ rustler::atoms! {
     record_id,
     start_client_reply,
     create_stream_reply,
+    create_subscription_reply,
+    earliest, latest,
     start_producer_reply, stop_producer_reply,
     append_reply, await_append_result_reply,
     start_streaming_fetch_reply, streaming_fetch,
@@ -127,13 +131,59 @@ fn async_create_stream(
             Ok::<(), hstreamdb::Error>(())
         }
         .await;
-        let mut env = OwnedEnv::new();
-        env.send_and_clear(&pid, |env| match create_stream_result {
+        OwnedEnv::new().send_and_clear(&pid, |env| match create_stream_result {
             Ok(()) => (create_stream_reply(), ok()).encode(env),
             Err(err) => (create_stream_reply(), error(), err.to_string()).encode(env),
         });
     };
     runtime::spawn(future);
+}
+
+#[allow(clippy::too_many_arguments)]
+#[rustler::nif]
+fn async_create_subscription(
+    env: Env,
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
+    subscription_id: String,
+    stream_name: String,
+    ack_timeout_seconds: i32,
+    max_unacked_records: i32,
+    special_offset: Atom,
+) -> Term {
+    match atom_to_special_offset(special_offset) {
+        Err(err) => (error(), (badarg(), err)).encode(env),
+        Ok(offset) => {
+            let future = async move {
+                let client: &hstreamdb::Client = &client.0;
+                let result = client
+                    .create_subscription(Subscription {
+                        subscription_id,
+                        stream_name,
+                        ack_timeout_seconds,
+                        max_unacked_records,
+                        offset,
+                    })
+                    .await;
+                OwnedEnv::new().send_and_clear(&pid, |env| match result {
+                    Ok(()) => (create_subscription_reply(), ok()).encode(env),
+                    Err(err) => (create_subscription_reply(), error(), err.to_string()).encode(env),
+                })
+            };
+            runtime::spawn(future);
+            ok().to_term(env)
+        }
+    }
+}
+
+fn atom_to_special_offset(special_offset: Atom) -> Result<SpecialOffset, String> {
+    if special_offset == earliest() {
+        Ok(SpecialOffset::Earliest)
+    } else if special_offset == latest() {
+        Ok(SpecialOffset::Latest)
+    } else {
+        Err(format!("no match for special offset `{special_offset:?}`"))
+    }
 }
 
 fn try_start_producer(
