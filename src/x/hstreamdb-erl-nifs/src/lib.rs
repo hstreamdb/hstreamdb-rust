@@ -42,7 +42,9 @@ rustler::atoms! {
 rustler::init!(
     "hstreamdb",
     [
+        async_start_client,
         async_create_stream,
+        async_create_subscription,
         async_start_producer,
         async_stop_producer,
         async_append,
