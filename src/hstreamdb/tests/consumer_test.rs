@@ -13,7 +13,7 @@ async fn test_consumer() {
     env_logger::init();
 
     let addr = env::var("TEST_SERVER_ADDR").unwrap();
-    let mut client = Client::new(
+    let client = Client::new(
         addr,
         ChannelProviderSettings::builder()
             .set_concurrency_limit(8)
@@ -105,10 +105,10 @@ async fn test_consumer() {
         .unwrap();
 
     let mut records = Vec::new();
-    while let Some((record, ack)) = stream.next().await {
+    while let Some((record, responder)) = stream.next().await {
         println!("{record:?}");
         records.push(record);
-        ack().unwrap();
+        responder.ack().unwrap();
         if records.len() == 10 * 100 {
             println!("done");
             break;

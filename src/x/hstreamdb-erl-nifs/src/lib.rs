@@ -4,33 +4,53 @@ use std::sync::Arc;
 use hstreamdb::appender::Appender;
 use hstreamdb::client::Client;
 use hstreamdb::producer::{FlushCallback, FlushSettings};
-use hstreamdb::{ChannelProviderSettings, CompressionType, Record, RecordId, Stream};
+use hstreamdb::{
+    ChannelProviderSettings, CompressionType, Record, RecordId, SpecialOffset, Stream, Subscription,
+};
 use once_cell::sync::OnceCell;
-use parking_lot::{Mutex, MutexGuard};
+use prost::Message;
 use rustler::types::atom::{badarg, error, ok};
-use rustler::{resource, Atom, Encoder, Env, LocalPid, NifResult, OwnedEnv, ResourceArc, Term};
-use tokio::sync::oneshot;
+use rustler::{
+    resource, Atom, Binary, Encoder, Env, LocalPid, NifResult, OwnedBinary, OwnedEnv, ResourceArc,
+    Term,
+};
+use tokio::sync::{oneshot, Mutex, MutexGuard};
+use tokio_stream::StreamExt;
 
 mod runtime;
 
 rustler::atoms! {
+    reply,
     terminated,
     compression_type, none, gzip, zstd,
     concurrency_limit, flow_control_size,
     max_batch_len, max_batch_size, batch_deadline,
     on_flush, flush_result,
     record_id,
-    create_stream_reply, start_producer_reply, append_reply, await_append_result_reply, stop_producer_reply
+    start_client_reply,
+    create_stream_reply,
+    create_subscription_reply,
+    earliest, latest,
+    start_producer_reply, stop_producer_reply,
+    append_reply, await_append_result_reply,
+    start_streaming_fetch_reply, streaming_fetch,
+    ack_reply,
+    h_record, raw_record,
+    eos, already_acked,
 }
 
 rustler::init!(
     "hstreamdb",
     [
+        async_start_client,
         async_create_stream,
+        async_create_subscription,
         async_start_producer,
         async_stop_producer,
         async_append,
-        async_await_append_result
+        async_await_append_result,
+        async_start_streaming_fetch,
+        async_ack,
     ],
     load = load
 );
@@ -41,23 +61,59 @@ enum AppendResult {
     Error(String),
 }
 
+struct NifClient(hstreamdb::Client);
+
 struct AppendResultFuture(Mutex<Option<AppendResultType>>, OnceCell<AppendResult>);
 
 type AppendResultType = oneshot::Receiver<Result<RecordId, Arc<hstreamdb::Error>>>;
-#[derive(Clone)]
-pub struct NifAppender(flume::Sender<(Record, LocalPid)>, flume::Sender<()>);
+
+struct NifAppender(flume::Sender<(Record, LocalPid)>, flume::Sender<()>);
+
+struct NifResponder(Mutex<Option<hstreamdb::consumer::Responder>>);
+
+impl NifResponder {
+    async fn ack(&self) -> Result<(), Atom> {
+        let responder = {
+            let responder = &self.0;
+            let mut responder = responder.lock().await;
+            mem::take(&mut (*responder))
+        }
+        .ok_or_else(already_acked)?;
+        responder.ack().map_err(|_| terminated())?;
+        Ok(())
+    }
+}
 
 fn load(env: Env, _: Term) -> bool {
+    resource!(NifClient, env);
     resource!(NifAppender, env);
     resource!(AppendResultFuture, env);
+    resource!(NifResponder, env);
     env_logger::init();
     true
 }
 
 #[rustler::nif]
-pub fn async_create_stream(
+fn async_start_client(pid: LocalPid, url: String, _conf: Term) {
+    let future = async move {
+        let client = Client::new(url, ChannelProviderSettings::builder().build()).await;
+        OwnedEnv::new().send_and_clear(&pid, |env| match client {
+            Ok(client) => (
+                start_client_reply(),
+                ok(),
+                ResourceArc::new(NifClient(client)),
+            )
+                .encode(env),
+            Err(err) => (start_client_reply(), error(), err.to_string()).encode(env),
+        })
+    };
+    runtime::spawn(future);
+}
+
+#[rustler::nif]
+fn async_create_stream(
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     replication_factor: u32,
     backlog_duration: u32,
@@ -65,7 +121,7 @@ pub fn async_create_stream(
 ) {
     let future = async move {
         let create_stream_result = async move {
-            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = &client.0;
             client
                 .create_stream(Stream {
                     stream_name,
@@ -77,8 +133,7 @@ pub fn async_create_stream(
             Ok::<(), hstreamdb::Error>(())
         }
         .await;
-        let mut env = OwnedEnv::new();
-        env.send_and_clear(&pid, |env| match create_stream_result {
+        OwnedEnv::new().send_and_clear(&pid, |env| match create_stream_result {
             Ok(()) => (create_stream_reply(), ok()).encode(env),
             Err(err) => (create_stream_reply(), error(), err.to_string()).encode(env),
         });
@@ -86,9 +141,56 @@ pub fn async_create_stream(
     runtime::spawn(future);
 }
 
-pub fn try_start_producer(
+#[allow(clippy::too_many_arguments)]
+#[rustler::nif]
+fn async_create_subscription(
+    env: Env,
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
+    subscription_id: String,
+    stream_name: String,
+    ack_timeout_seconds: i32,
+    max_unacked_records: i32,
+    special_offset: Atom,
+) -> Term {
+    match atom_to_special_offset(special_offset) {
+        Err(err) => (error(), (badarg(), err)).encode(env),
+        Ok(offset) => {
+            let future = async move {
+                let client: &hstreamdb::Client = &client.0;
+                let result = client
+                    .create_subscription(Subscription {
+                        subscription_id,
+                        stream_name,
+                        ack_timeout_seconds,
+                        max_unacked_records,
+                        offset,
+                    })
+                    .await;
+                OwnedEnv::new().send_and_clear(&pid, |env| match result {
+                    Ok(()) => (create_subscription_reply(), ok()).encode(env),
+                    Err(err) => (create_subscription_reply(), error(), err.to_string()).encode(env),
+                })
+            };
+            runtime::spawn(future);
+            ok().to_term(env)
+        }
+    }
+}
+
+fn atom_to_special_offset(special_offset: Atom) -> Result<SpecialOffset, String> {
+    if special_offset == earliest() {
+        Ok(SpecialOffset::Earliest)
+    } else if special_offset == latest() {
+        Ok(SpecialOffset::Latest)
+    } else {
+        Err(format!("no match for special offset `{special_offset:?}`"))
+    }
+}
+
+fn try_start_producer(
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
 ) -> hstreamdb::common::Result<()> {
@@ -111,7 +213,7 @@ pub fn try_start_producer(
     };
     let future = async move {
         let start_producer_result = async move {
-            let client = Client::new(url, ChannelProviderSettings::builder().build()).await?;
+            let client = &client.0;
             let (appender, producer) = client
                 .new_producer(
                     stream_name,
@@ -169,14 +271,14 @@ async fn handle_append(appender: &mut Appender, record: Record, pid: &LocalPid) 
 }
 
 #[rustler::nif]
-pub fn async_start_producer<'a>(
+fn async_start_producer<'a>(
     env: Env<'a>,
     pid: LocalPid,
-    url: String,
+    client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
 ) -> NifResult<Term<'a>> {
-    try_start_producer(pid, url, stream_name, settings)
+    try_start_producer(pid, client, stream_name, settings)
         .map(|()| ok().to_term(env))
         .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
@@ -243,7 +345,7 @@ fn async_await_append_result(pid: LocalPid, x: ResourceArc<AppendResultFuture>) 
         if result.get().is_none() {
             let append_result = {
                 let receiver: &Mutex<_> = &x.0;
-                let mut receiver: MutexGuard<Option<_>> = receiver.lock();
+                let mut receiver: MutexGuard<Option<_>> = receiver.lock().await;
                 mem::take(&mut (*receiver))
             }
             .unwrap();
@@ -384,4 +486,74 @@ fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
         OwnedEnv::new().send_and_clear(&pid, |env| (flush_result(), is_ok, len, size).encode(env))
     });
     Ok(f)
+}
+
+#[rustler::nif]
+fn async_start_streaming_fetch(
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
+    return_pid: LocalPid,
+    consumer_name: String,
+    subscription_id: String,
+) {
+    let future = async move {
+        let client: &Client = &client.0;
+        let mut env = OwnedEnv::new();
+        match client
+            .streaming_fetch(consumer_name.clone(), subscription_id)
+            .await
+        {
+            Err(err) => env.send_and_clear(&pid, |env| {
+                (start_streaming_fetch_reply(), error(), err.to_string()).encode(env)
+            }),
+            Ok(mut stream) => {
+                env.send_and_clear(&pid, |env| {
+                    (start_streaming_fetch_reply(), ok()).encode(env)
+                });
+                let return_tag: Atom = streaming_fetch();
+                while let Some((payload, responder)) = stream.next().await {
+                    env.send_and_clear(&return_pid, |env| {
+                        let payload_type = match &payload {
+                            hstreamdb::Payload::HRecord(_) => h_record(),
+                            hstreamdb::Payload::RawRecord(_) => raw_record(),
+                        };
+                        let payload = match payload {
+                            hstreamdb::Payload::HRecord(record) => record.encode_to_vec(),
+                            hstreamdb::Payload::RawRecord(record) => record,
+                        };
+                        let payload = {
+                            let mut bin = OwnedBinary::new(payload.len()).unwrap();
+                            bin.as_mut_slice().copy_from_slice(payload.as_slice());
+                            Binary::from_owned(bin, env)
+                        };
+                        (
+                            return_tag,
+                            consumer_name.clone(),
+                            reply(),
+                            payload_type,
+                            payload,
+                            ResourceArc::new(NifResponder(Mutex::new(Some(responder)))),
+                        )
+                            .encode(env)
+                    })
+                }
+                env.send_and_clear(&return_pid, |env| {
+                    (return_tag, consumer_name.clone(), eos()).encode(env)
+                })
+            }
+        }
+    };
+    runtime::spawn(future);
+}
+
+#[rustler::nif]
+fn async_ack(pid: LocalPid, responder: ResourceArc<NifResponder>) {
+    let future = async move {
+        let result = responder.ack().await;
+        OwnedEnv::new().send_and_clear(&pid, |env| match result {
+            Ok(()) => (ack_reply(), ok()).encode(env),
+            Err(err) => (ack_reply(), error(), err).encode(env),
+        })
+    };
+    runtime::spawn(future);
 }
