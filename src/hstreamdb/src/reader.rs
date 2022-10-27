@@ -1,12 +1,13 @@
 use hstreamdb_pb::{
-    CreateShardReaderRequest, DeleteShardReaderRequest, HStreamRecord, LookupShardReaderRequest,
-    ReadShardRequest, RecordId,
+    CreateShardReaderRequest, DeleteShardReaderRequest, LookupShardReaderRequest, ReadShardRequest,
+    RecordId,
 };
+use prost::DecodeError;
 
 use crate::client::Client;
 use crate::common::{self, ShardId};
-use crate::format_url;
 use crate::utils::decode_received_records;
+use crate::{format_url, Payload};
 
 pub struct ShardReaderId {
     reader_id: String,
@@ -55,10 +56,10 @@ impl Client {
     }
 
     pub async fn read_shard(
-        &mut self,
+        &self,
         shard_reader_id: &ShardReaderId,
         max_records: u32,
-    ) -> common::Result<Vec<(RecordId, HStreamRecord)>> {
+    ) -> common::Result<Vec<(RecordId, Result<Payload, DecodeError>)>> {
         let mut channel = self
             .channels
             .channel_at(shard_reader_id.server_url.clone())
@@ -75,14 +76,15 @@ impl Client {
             .into_iter()
             .map(decode_received_records)
             .collect::<Result<Vec<_>, _>>()?;
-        let records = records.into_iter().flatten().collect::<Vec<_>>();
+        let records = records
+            .into_iter()
+            .flatten()
+            .map(|x| (x.0, x.1.try_into()))
+            .collect::<Vec<_>>();
         Ok(records)
     }
 
-    pub async fn delete_shard_reader(
-        &mut self,
-        shard_reader_id: &ShardReaderId,
-    ) -> common::Result<()> {
+    pub async fn delete_shard_reader(&self, shard_reader_id: &ShardReaderId) -> common::Result<()> {
         let mut channel = self
             .channels
             .channel_at(shard_reader_id.server_url.clone())

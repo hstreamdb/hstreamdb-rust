@@ -1,9 +1,10 @@
 use std::io;
 
-use hstreamdb_pb::StreamingFetchRequest;
 pub use hstreamdb_pb::{CompressionType, RecordId, SpecialOffset, Stream};
+use hstreamdb_pb::{HStreamRecord, StreamingFetchRequest};
 use num_bigint::ParseBigIntError;
 use prost::{DecodeError, Message};
+use prost_types::Struct;
 use tonic::transport;
 
 use crate::producer;
@@ -136,6 +137,19 @@ pub struct Record {
 pub enum Payload {
     HRecord(prost_types::Struct),
     RawRecord(Vec<u8>),
+}
+
+impl TryFrom<HStreamRecord> for Payload {
+    type Error = DecodeError;
+
+    fn try_from(record: HStreamRecord) -> std::result::Result<Self, Self::Error> {
+        Ok(match record.header.unwrap().flag() {
+            hstreamdb_pb::h_stream_record_header::Flag::Json => {
+                Self::HRecord(Struct::decode(record.payload.as_slice())?)
+            }
+            hstreamdb_pb::h_stream_record_header::Flag::Raw => Self::RawRecord(record.payload),
+        })
+    }
 }
 
 impl Payload {

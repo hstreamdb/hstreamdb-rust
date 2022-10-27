@@ -38,7 +38,8 @@ rustler::atoms! {
     ack_reply,
     h_record, raw_record,
     eos, already_acked,
-    create_shard_reader_reply,
+    create_shard_reader_reply, read_shard_reply,
+    bad_hstream_record,
 }
 
 rustler::init!(
@@ -53,6 +54,8 @@ rustler::init!(
         async_await_append_result,
         async_start_streaming_fetch,
         async_ack,
+        async_create_shard_reader,
+        async_read_shard,
     ],
     load = load
 );
@@ -63,6 +66,38 @@ struct NifRecordId {
     shard_id: ShardId,
     batch_id: u64,
     batch_index: u32,
+}
+
+impl From<RecordId> for NifRecordId {
+    fn from(
+        RecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }: RecordId,
+    ) -> Self {
+        NifRecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }
+    }
+}
+
+impl From<NifRecordId> for RecordId {
+    fn from(
+        NifRecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }: NifRecordId,
+    ) -> Self {
+        Self {
+            shard_id,
+            batch_id,
+            batch_index,
+        }
+    }
 }
 
 #[derive(NifRecord)]
@@ -648,4 +683,49 @@ fn term_to_stream_shard_offset(stream_shard_offset: Term) -> Result<StreamShardO
             "no match for stream shard offset `{stream_shard_offset:?}`"
         ))
     }
+}
+
+#[rustler::nif]
+fn async_read_shard(
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
+    shard_reader_id: ResourceArc<NifShardReaderId>,
+    max_records: u32,
+) {
+    let future = async move {
+        let client: &Client = &client.0;
+        let result = client.read_shard(&shard_reader_id.0, max_records).await;
+        OwnedEnv::new().send_and_clear(&pid, |env| match result {
+            Err(err) => (read_shard_reply(), error(), err.to_string()).encode(env),
+            Ok(records) => records
+                .into_iter()
+                .map(|x| {
+                    (
+                        NifRecordId::from(x.0),
+                        match x.1 {
+                            Ok(payload) => {
+                                let payload = match payload {
+                                    hstreamdb::Payload::HRecord(payload) => {
+                                        (h_record(), payload.encode_to_vec())
+                                    }
+                                    hstreamdb::Payload::RawRecord(payload) => {
+                                        (raw_record(), payload)
+                                    }
+                                };
+                                (payload.0, {
+                                    let mut bin = OwnedBinary::new(payload.1.len()).unwrap();
+                                    bin.as_mut_slice().copy_from_slice(payload.1.as_slice());
+                                    Binary::from_owned(bin, env)
+                                })
+                                    .encode(env)
+                            }
+                            Err(err) => (bad_hstream_record(), err.to_string()).encode(env),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+                .encode(env),
+        })
+    };
+    runtime::spawn(future);
 }
