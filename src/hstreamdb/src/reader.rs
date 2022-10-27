@@ -15,7 +15,7 @@ pub struct ShardReaderId {
 
 impl Client {
     pub async fn create_shard_reader(
-        &mut self,
+        &self,
         reader_id: String,
         stream_name: String,
         shard_id: ShardId,
