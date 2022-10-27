@@ -552,7 +552,7 @@ fn async_ack(pid: LocalPid, responder: ResourceArc<NifResponder>) {
         let result = responder.ack().await;
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
             Ok(()) => (ack_reply(), ok()).encode(env),
-            Err(err) => (error(), err).encode(env),
+            Err(err) => (ack_reply(), error(), err).encode(env),
         })
     };
     runtime::spawn(future);
