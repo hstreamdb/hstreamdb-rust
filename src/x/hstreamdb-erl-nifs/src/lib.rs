@@ -697,33 +697,36 @@ fn async_read_shard(
         let result = client.read_shard(&shard_reader_id.0, max_records).await;
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
             Err(err) => (read_shard_reply(), error(), err.to_string()).encode(env),
-            Ok(records) => records
-                .into_iter()
-                .map(|x| {
-                    (
-                        NifRecordId::from(x.0),
-                        match x.1 {
-                            Ok(payload) => {
-                                let payload = match payload {
-                                    hstreamdb::Payload::HRecord(payload) => {
-                                        (h_record(), payload.encode_to_vec())
-                                    }
-                                    hstreamdb::Payload::RawRecord(payload) => {
-                                        (raw_record(), payload)
-                                    }
-                                };
-                                (payload.0, {
-                                    let mut bin = OwnedBinary::new(payload.1.len()).unwrap();
-                                    bin.as_mut_slice().copy_from_slice(payload.1.as_slice());
-                                    Binary::from_owned(bin, env)
-                                })
-                                    .encode(env)
-                            }
-                            Err(err) => (bad_hstream_record(), err.to_string()).encode(env),
-                        },
-                    )
-                })
-                .collect::<Vec<_>>()
+            Ok(records) => (
+                read_shard_reply(),
+                records
+                    .into_iter()
+                    .map(|x| {
+                        (
+                            NifRecordId::from(x.0),
+                            match x.1 {
+                                Ok(payload) => {
+                                    let payload = match payload {
+                                        hstreamdb::Payload::HRecord(payload) => {
+                                            (h_record(), payload.encode_to_vec())
+                                        }
+                                        hstreamdb::Payload::RawRecord(payload) => {
+                                            (raw_record(), payload)
+                                        }
+                                    };
+                                    (payload.0, {
+                                        let mut bin = OwnedBinary::new(payload.1.len()).unwrap();
+                                        bin.as_mut_slice().copy_from_slice(payload.1.as_slice());
+                                        Binary::from_owned(bin, env)
+                                    })
+                                        .encode(env)
+                                }
+                                Err(err) => (bad_hstream_record(), err.to_string()).encode(env),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
                 .encode(env),
         })
     };
