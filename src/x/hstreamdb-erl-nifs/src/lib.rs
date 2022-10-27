@@ -4,15 +4,17 @@ use std::sync::Arc;
 use hstreamdb::appender::Appender;
 use hstreamdb::client::Client;
 use hstreamdb::producer::{FlushCallback, FlushSettings};
+use hstreamdb::reader::ShardReaderId;
 use hstreamdb::{
-    ChannelProviderSettings, CompressionType, Record, RecordId, SpecialOffset, Stream, Subscription,
+    ChannelProviderSettings, CompressionType, Record, RecordId, ShardId, SpecialOffset, Stream,
+    StreamShardOffset, Subscription,
 };
 use once_cell::sync::OnceCell;
 use prost::Message;
 use rustler::types::atom::{badarg, error, ok};
 use rustler::{
-    resource, Atom, Binary, Encoder, Env, LocalPid, NifResult, OwnedBinary, OwnedEnv, ResourceArc,
-    Term,
+    resource, Atom, Binary, Encoder, Env, LocalPid, NifRecord, NifResult, OwnedBinary, OwnedEnv,
+    ResourceArc, Term,
 };
 use tokio::sync::{oneshot, Mutex, MutexGuard};
 use tokio_stream::StreamExt;
@@ -25,8 +27,7 @@ rustler::atoms! {
     compression_type, none, gzip, zstd,
     concurrency_limit, flow_control_size,
     max_batch_len, max_batch_size, batch_deadline,
-    on_flush, flush_result,
-    record_id,
+    on_flush,
     start_client_reply,
     create_stream_reply,
     create_subscription_reply,
@@ -37,6 +38,8 @@ rustler::atoms! {
     ack_reply,
     h_record, raw_record,
     eos, already_acked,
+    create_shard_reader_reply, read_shard_reply,
+    bad_hstream_record,
 }
 
 rustler::init!(
@@ -51,9 +54,59 @@ rustler::init!(
         async_await_append_result,
         async_start_streaming_fetch,
         async_ack,
+        async_create_shard_reader,
+        async_read_shard,
     ],
     load = load
 );
+
+#[derive(NifRecord)]
+#[tag = "record_id"]
+struct NifRecordId {
+    shard_id: ShardId,
+    batch_id: u64,
+    batch_index: u32,
+}
+
+impl From<RecordId> for NifRecordId {
+    fn from(
+        RecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }: RecordId,
+    ) -> Self {
+        NifRecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }
+    }
+}
+
+impl From<NifRecordId> for RecordId {
+    fn from(
+        NifRecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }: NifRecordId,
+    ) -> Self {
+        Self {
+            shard_id,
+            batch_id,
+            batch_index,
+        }
+    }
+}
+
+#[derive(NifRecord)]
+#[tag = "flush_result"]
+struct NifFlushResult {
+    is_ok: bool,
+    batch_len: usize,
+    batch_size: usize,
+}
 
 #[derive(Debug)]
 enum AppendResult {
@@ -84,11 +137,14 @@ impl NifResponder {
     }
 }
 
+struct NifShardReaderId(ShardReaderId);
+
 fn load(env: Env, _: Term) -> bool {
     resource!(NifClient, env);
     resource!(NifAppender, env);
     resource!(AppendResultFuture, env);
     resource!(NifResponder, env);
+    resource!(NifShardReaderId, env);
     env_logger::init();
     true
 }
@@ -362,12 +418,11 @@ fn async_await_append_result(pid: LocalPid, x: ResourceArc<AppendResultFuture>) 
             RecordId(record_id_v) => (
                 await_append_result_reply(),
                 ok(),
-                (
-                    record_id(),
-                    record_id_v.shard_id,
-                    record_id_v.batch_id,
-                    record_id_v.batch_index,
-                ),
+                NifRecordId {
+                    shard_id: record_id_v.shard_id,
+                    batch_id: record_id_v.batch_id,
+                    batch_index: record_id_v.batch_index,
+                },
             )
                 .encode(env),
             Error(err) => (await_append_result_reply(), error(), err.to_string()).encode(env),
@@ -482,8 +537,15 @@ fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
     let pid: LocalPid = pid
         .decode()
         .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
-    let f: FlushCallback = Arc::new(move |is_ok, len, size| {
-        OwnedEnv::new().send_and_clear(&pid, |env| (flush_result(), is_ok, len, size).encode(env))
+    let f: FlushCallback = Arc::new(move |is_ok, batch_len, batch_size| {
+        OwnedEnv::new().send_and_clear(&pid, |env| {
+            (NifFlushResult {
+                is_ok,
+                batch_len,
+                batch_size,
+            })
+            .encode(env)
+        })
     });
     Ok(f)
 }
@@ -553,6 +615,119 @@ fn async_ack(pid: LocalPid, responder: ResourceArc<NifResponder>) {
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
             Ok(()) => (ack_reply(), ok()).encode(env),
             Err(err) => (ack_reply(), error(), err).encode(env),
+        })
+    };
+    runtime::spawn(future);
+}
+
+#[allow(clippy::too_many_arguments)]
+#[rustler::nif]
+fn async_create_shard_reader<'a>(
+    env: Env<'a>,
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
+    reader_id: String,
+    stream_name: String,
+    shard_id: ShardId,
+    stream_shard_offset: Term,
+    timeout_ms: u32,
+) -> Term<'a> {
+    match term_to_stream_shard_offset(stream_shard_offset) {
+        Err(err) => (error(), (badarg(), err)).encode(env),
+        Ok(shard_offset) => {
+            let future = async move {
+                let client: &Client = &client.0;
+                let result = client
+                    .create_shard_reader(reader_id, stream_name, shard_id, shard_offset, timeout_ms)
+                    .await;
+                OwnedEnv::new().send_and_clear(&pid, |env| match result {
+                    Ok(shard_reader_id) => (
+                        create_shard_reader_reply(),
+                        ok(),
+                        ResourceArc::new(NifShardReaderId(shard_reader_id)),
+                    )
+                        .encode(env),
+                    Err(err) => (create_shard_reader_reply(), error(), err.to_string()).encode(env),
+                })
+            };
+            runtime::spawn(future);
+            ok().to_term(env)
+        }
+    }
+}
+
+fn term_to_stream_shard_offset(stream_shard_offset: Term) -> Result<StreamShardOffset, String> {
+    if let Ok(stream_shard_offset) = stream_shard_offset.decode::<Atom>() {
+        if stream_shard_offset == earliest() {
+            Ok(StreamShardOffset::Special(SpecialOffset::Earliest))
+        } else if stream_shard_offset == latest() {
+            Ok(StreamShardOffset::Special(SpecialOffset::Latest))
+        } else {
+            Err(format!(
+                "no match for stream shard offset `{stream_shard_offset:?}`"
+            ))
+        }
+    } else if let Ok(stream_shard_offset) = stream_shard_offset.decode::<NifRecordId>() {
+        let NifRecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        } = stream_shard_offset;
+        Ok(StreamShardOffset::Normal(RecordId {
+            shard_id,
+            batch_id,
+            batch_index,
+        }))
+    } else {
+        Err(format!(
+            "no match for stream shard offset `{stream_shard_offset:?}`"
+        ))
+    }
+}
+
+#[rustler::nif]
+fn async_read_shard(
+    pid: LocalPid,
+    client: ResourceArc<NifClient>,
+    shard_reader_id: ResourceArc<NifShardReaderId>,
+    max_records: u32,
+) {
+    let future = async move {
+        let client: &Client = &client.0;
+        let result = client.read_shard(&shard_reader_id.0, max_records).await;
+        OwnedEnv::new().send_and_clear(&pid, |env| match result {
+            Err(err) => (read_shard_reply(), error(), err.to_string()).encode(env),
+            Ok(records) => (
+                read_shard_reply(),
+                records
+                    .into_iter()
+                    .map(|x| {
+                        (
+                            NifRecordId::from(x.0),
+                            match x.1 {
+                                Ok(payload) => {
+                                    let payload = match payload {
+                                        hstreamdb::Payload::HRecord(payload) => {
+                                            (h_record(), payload.encode_to_vec())
+                                        }
+                                        hstreamdb::Payload::RawRecord(payload) => {
+                                            (raw_record(), payload)
+                                        }
+                                    };
+                                    (payload.0, {
+                                        let mut bin = OwnedBinary::new(payload.1.len()).unwrap();
+                                        bin.as_mut_slice().copy_from_slice(payload.1.as_slice());
+                                        Binary::from_owned(bin, env)
+                                    })
+                                        .encode(env)
+                                }
+                                Err(err) => (bad_hstream_record(), err.to_string()).encode(env),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+                .encode(env),
         })
     };
     runtime::spawn(future);
