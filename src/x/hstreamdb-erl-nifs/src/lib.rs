@@ -491,8 +491,8 @@ fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
 #[rustler::nif]
 fn async_start_streaming_fetch(
     pid: LocalPid,
-    return_pid: LocalPid,
     client: ResourceArc<NifClient>,
+    return_pid: LocalPid,
     consumer_name: String,
     subscription_id: String,
 ) {
