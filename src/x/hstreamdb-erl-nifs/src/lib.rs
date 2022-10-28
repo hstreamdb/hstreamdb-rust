@@ -58,6 +58,10 @@ rustler::init!(
         async_ack,
         async_create_shard_reader,
         async_read_shard,
+        new_client_tls_config,
+        set_domain_name,
+        set_ca_certificate,
+        set_identity,
     ],
     load = load
 );
