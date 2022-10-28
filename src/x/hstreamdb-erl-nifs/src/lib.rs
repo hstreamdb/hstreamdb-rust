@@ -394,16 +394,14 @@ fn async_stop_producer(pid: LocalPid, producer: ResourceArc<NifAppender>) {
     runtime::spawn(future);
 }
 
-fn try_append<'a>(
-    env: Env<'a>,
+#[rustler::nif]
+fn async_append(
     pid: LocalPid,
     producer: ResourceArc<NifAppender>,
     partition_key: String,
-    raw_payload: Term,
-) -> Result<(), Term<'a>> {
-    let raw_payload = rustler::Binary::from_term(raw_payload)
-        .map_err(|err| (badarg(), format!("{err:?}")).encode(env))?
-        .to_vec();
+    raw_payload: Binary,
+) {
+    let raw_payload = raw_payload.to_vec();
     let future = async move {
         let record = Record {
             partition_key,
@@ -418,21 +416,6 @@ fn try_append<'a>(
         }
     };
     runtime::spawn(future);
-    Ok(())
-}
-
-#[rustler::nif]
-fn async_append<'a>(
-    env: Env<'a>,
-    pid: LocalPid,
-    producer: ResourceArc<NifAppender>,
-    partition_key: String,
-    raw_payload: Term,
-) -> Term<'a> {
-    match try_append(env, pid, producer, partition_key, raw_payload) {
-        Ok(()) => ok().encode(env),
-        Err(err) => (error(), err).encode(env),
-    }
 }
 
 #[rustler::nif]
