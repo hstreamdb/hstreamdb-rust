@@ -406,6 +406,7 @@ dependencies = [
  "rustler",
  "tokio",
  "tokio-stream",
+ "tonic",
  "workspace-hack",
 ]
 

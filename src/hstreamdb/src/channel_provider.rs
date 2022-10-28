@@ -95,9 +95,9 @@ impl ChannelProviderSettingsBuilder {
         })
     }
 
-    pub fn set_client_tls_config(self, client_tls_config: ClientTlsConfig) -> Self {
+    pub fn set_tls_config(self, tls_config: ClientTlsConfig) -> Self {
         Self(ChannelProviderSettings {
-            client_tls_config: Some(client_tls_config),
+            client_tls_config: Some(tls_config),
             ..self.0
         })
     }

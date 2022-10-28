@@ -4,7 +4,7 @@ use hstreamdb_pb::{
     CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, ListStreamsRequest,
     ListSubscriptionsRequest, LookupSubscriptionRequest, NodeState,
 };
-use tonic::transport::Channel;
+use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::Request;
 use url::Url;
 
@@ -16,6 +16,7 @@ use crate::{common, flow_controller, format_url, producer};
 pub struct Client {
     pub(crate) channels: Channels,
     pub(crate) url_scheme: String,
+    tls_config: Option<ClientTlsConfig>,
 }
 
 impl Client {
@@ -46,6 +47,7 @@ impl Client {
             }
         };
         let mut hstream_api_client = HStreamApiClient::connect(String::from(url)).await?;
+        let tls_config = channel_provider_settings.client_tls_config.clone();
         let channels = new_channel_provider(
             &url_scheme,
             &mut hstream_api_client,
@@ -55,6 +57,7 @@ impl Client {
         Ok(Client {
             channels,
             url_scheme,
+            tls_config,
         })
     }
 }
@@ -62,8 +65,11 @@ impl Client {
 impl Client {
     async fn new_channel_provider(
         &self,
-        channel_provider_settings: ChannelProviderSettings,
+        mut channel_provider_settings: ChannelProviderSettings,
     ) -> common::Result<Channels> {
+        if channel_provider_settings.client_tls_config.is_none() {
+            channel_provider_settings.client_tls_config = self.tls_config.clone()
+        }
         new_channel_provider(
             &self.url_scheme,
             &mut self.channels.channel().await,
