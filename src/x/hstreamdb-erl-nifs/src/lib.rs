@@ -204,8 +204,7 @@ fn from_start_client_options(proplists: Term) -> hstreamdb::Result<ChannelProvid
             }
         }
     }
-
-    todo!()
+    Ok(channel_provider_settings.build())
 }
 
 #[rustler::nif]
