@@ -18,6 +18,7 @@ use rustler::{
 };
 use tokio::sync::{oneshot, Mutex, MutexGuard};
 use tokio_stream::StreamExt;
+use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 
 mod runtime;
 
@@ -40,6 +41,7 @@ rustler::atoms! {
     eos, already_acked,
     create_shard_reader_reply, read_shard_reply,
     bad_hstream_record,
+    tls_config,
 }
 
 rustler::init!(
@@ -145,25 +147,61 @@ fn load(env: Env, _: Term) -> bool {
     resource!(AppendResultFuture, env);
     resource!(NifResponder, env);
     resource!(NifShardReaderId, env);
+    resource!(NifClientTlsConfig, env);
     env_logger::init();
     true
 }
 
 #[rustler::nif]
-fn async_start_client(pid: LocalPid, url: String, _conf: Term) {
-    let future = async move {
-        let client = Client::new(url, ChannelProviderSettings::builder().build()).await;
-        OwnedEnv::new().send_and_clear(&pid, |env| match client {
-            Ok(client) => (
-                start_client_reply(),
-                ok(),
-                ResourceArc::new(NifClient(client)),
-            )
-                .encode(env),
-            Err(err) => (start_client_reply(), error(), err.to_string()).encode(env),
-        })
-    };
-    runtime::spawn(future);
+fn async_start_client<'a>(env: Env<'a>, pid: LocalPid, url: String, options: Term) -> Term<'a> {
+    match from_start_client_options(options) {
+        Err(err) => (error(), (badarg(), err.to_string())).encode(env),
+        Ok(channel_provider_settings) => {
+            let future = async move {
+                let client = Client::new(url, channel_provider_settings).await;
+                OwnedEnv::new().send_and_clear(&pid, |env| match client {
+                    Ok(client) => (
+                        start_client_reply(),
+                        ok(),
+                        ResourceArc::new(NifClient(client)),
+                    )
+                        .encode(env),
+                    Err(err) => (start_client_reply(), error(), err.to_string()).encode(env),
+                })
+            };
+            runtime::spawn(future);
+            ok().to_term(env)
+        }
+    }
+}
+
+fn from_start_client_options(proplists: Term) -> hstreamdb::Result<ChannelProviderSettings> {
+    let proplists = proplists
+        .into_list_iterator()
+        .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+
+    let mut channel_provider_settings = ChannelProviderSettings::builder();
+    for x in proplists {
+        if x.is_tuple() {
+            let (k, v): (Atom, Term) = x
+                .decode()
+                .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+            if k == tls_config() {
+                let v: ResourceArc<NifClientTlsConfig> = v
+                    .decode()
+                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+                let NifClientTlsConfig(v) = (*v).clone();
+                channel_provider_settings = channel_provider_settings.set_tls_config(v)
+            } else if k == concurrency_limit() {
+                let v: usize = v
+                    .decode()
+                    .map_err(|err| hstreamdb::Error::BadArgument(format!("{err:?}")))?;
+                channel_provider_settings = channel_provider_settings.set_concurrency_limit(v)
+            }
+        }
+    }
+
+    todo!()
 }
 
 #[rustler::nif]
@@ -731,4 +769,45 @@ fn async_read_shard(
         })
     };
     runtime::spawn(future);
+}
+
+#[derive(Clone)]
+struct NifClientTlsConfig(ClientTlsConfig);
+
+#[rustler::nif]
+fn new_client_tls_config() -> ResourceArc<NifClientTlsConfig> {
+    ResourceArc::new(NifClientTlsConfig(ClientTlsConfig::new()))
+}
+
+#[rustler::nif]
+fn set_domain_name(
+    tls_config: ResourceArc<NifClientTlsConfig>,
+    domain_name: String,
+) -> ResourceArc<NifClientTlsConfig> {
+    let NifClientTlsConfig(tls_config) = (*tls_config).clone();
+    ResourceArc::new(NifClientTlsConfig(tls_config.domain_name(domain_name)))
+}
+
+#[rustler::nif]
+fn set_ca_certificate(
+    tls_config: ResourceArc<NifClientTlsConfig>,
+    ca_certificate: Binary,
+) -> ResourceArc<NifClientTlsConfig> {
+    let NifClientTlsConfig(tls_config) = (*tls_config).clone();
+    ResourceArc::new(NifClientTlsConfig(
+        tls_config.ca_certificate(Certificate::from_pem(ca_certificate.as_slice())),
+    ))
+}
+
+#[rustler::nif]
+fn set_identity(
+    tls_config: ResourceArc<NifClientTlsConfig>,
+    cert: Binary,
+    key: Binary,
+) -> ResourceArc<NifClientTlsConfig> {
+    let NifClientTlsConfig(tls_config) = &*tls_config;
+    let tls_config = tls_config.clone();
+    ResourceArc::new(NifClientTlsConfig(
+        tls_config.identity(Identity::from_pem(cert.as_slice(), key.as_slice())),
+    ))
 }
