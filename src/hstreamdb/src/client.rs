@@ -100,9 +100,9 @@ pub(crate) async fn get_available_node_addrs(
 }
 
 impl Client {
-    pub async fn create_stream(&self, stream: Stream) -> common::Result<()> {
-        self.channels.channel().await.create_stream(stream).await?;
-        Ok(())
+    pub async fn create_stream(&self, stream: Stream) -> common::Result<Stream> {
+        let stream = self.channels.channel().await.create_stream(stream).await?;
+        Ok(stream.into_inner())
     }
 
     pub async fn delete_stream(
@@ -138,14 +138,18 @@ impl Client {
 }
 
 impl Client {
-    pub async fn create_subscription(&self, subscription: Subscription) -> common::Result<()> {
+    pub async fn create_subscription(
+        &self,
+        subscription: Subscription,
+    ) -> common::Result<Subscription> {
         let subscription: hstreamdb_pb::Subscription = subscription.into();
-        self.channels
+        let subscription = self
+            .channels
             .channel()
             .await
             .create_subscription(subscription)
             .await?;
-        Ok(())
+        Ok(subscription.into_inner().into())
     }
 
     pub async fn delete_subscription(
@@ -267,12 +271,13 @@ mod tests {
             replication_factor: 1,
             backlog_duration: 30 * 60,
             shard_count: 1,
+            creation_time: None,
         };
         let streams = (0..10)
             .map(|_| make_stream(format!("stream-{}", rand_alphanumeric(10))))
             .collect::<Vec<_>>();
         for stream in streams.iter() {
-            client.create_stream(stream.clone()).await.unwrap()
+            client.create_stream(stream.clone()).await.unwrap();
         }
 
         let listed_streams = client.list_streams().await.unwrap();
@@ -302,12 +307,13 @@ mod tests {
             replication_factor: 1,
             backlog_duration: 30 * 60,
             shard_count: 1,
+            creation_time: None,
         };
         let streams = (0..10)
             .map(|_| make_stream(format!("stream-{}", rand_alphanumeric(10))))
             .collect::<Vec<_>>();
         for stream in streams.iter() {
-            client.create_stream(stream.clone()).await.unwrap()
+            client.create_stream(stream.clone()).await.unwrap();
         }
 
         let listed_streams = client.list_streams().await.unwrap();
@@ -321,6 +327,7 @@ mod tests {
             ack_timeout_seconds: 60 * 10,
             max_unacked_records: 1000,
             offset: SpecialOffset::Earliest,
+            creation_time: None,
         };
         for stream in streams.iter() {
             let subscription_ids = (0..5)
@@ -333,7 +340,7 @@ mod tests {
                         stream.stream_name.clone(),
                     ))
                     .await
-                    .unwrap()
+                    .unwrap();
             }
             for subscription_id in subscription_ids.iter() {
                 assert!(

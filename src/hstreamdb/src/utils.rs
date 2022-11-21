@@ -145,6 +145,7 @@ mod tests {
                 replication_factor: 1,
                 backlog_duration: 10 * 60,
                 shard_count: 200,
+                creation_time: None,
             })
             .await
             .unwrap();

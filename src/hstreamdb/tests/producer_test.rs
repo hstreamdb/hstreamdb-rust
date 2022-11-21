@@ -28,6 +28,7 @@ async fn test_producer() {
             replication_factor: 1,
             backlog_duration: 30 * 60,
             shard_count: 12,
+            creation_time: None,
         })
         .await
         .unwrap();
