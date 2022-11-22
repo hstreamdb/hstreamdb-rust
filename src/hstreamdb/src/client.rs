@@ -273,11 +273,11 @@ mod tests {
             shard_count: 1,
             creation_time: None,
         };
-        let streams = (0..10)
+        let mut streams = (0..10)
             .map(|_| make_stream(format!("stream-{}", rand_alphanumeric(10))))
             .collect::<Vec<_>>();
-        for stream in streams.iter() {
-            client.create_stream(stream.clone()).await.unwrap();
+        for stream in streams.iter_mut() {
+            *stream = client.create_stream(stream.clone()).await.unwrap();
         }
 
         let listed_streams = client.list_streams().await.unwrap();
@@ -309,11 +309,11 @@ mod tests {
             shard_count: 1,
             creation_time: None,
         };
-        let streams = (0..10)
+        let mut streams = (0..10)
             .map(|_| make_stream(format!("stream-{}", rand_alphanumeric(10))))
             .collect::<Vec<_>>();
-        for stream in streams.iter() {
-            client.create_stream(stream.clone()).await.unwrap();
+        for stream in streams.iter_mut() {
+            *stream = client.create_stream(stream.clone()).await.unwrap();
         }
 
         let listed_streams = client.list_streams().await.unwrap();
