@@ -31,6 +31,7 @@ async fn test_consumer() {
             replication_factor: 1,
             backlog_duration: 30 * 60,
             shard_count: 12,
+            creation_time: None,
         })
         .await
         .unwrap();
@@ -42,6 +43,7 @@ async fn test_consumer() {
             ack_timeout_seconds: 60 * 60,
             max_unacked_records: 1000,
             offset: SpecialOffset::Earliest as _,
+            creation_time: None,
         })
         .await
         .unwrap();

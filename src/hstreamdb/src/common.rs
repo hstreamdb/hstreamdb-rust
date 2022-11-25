@@ -4,7 +4,7 @@ pub use hstreamdb_pb::{CompressionType, RecordId, SpecialOffset, Stream};
 use hstreamdb_pb::{HStreamRecord, StreamingFetchRequest};
 use num_bigint::ParseBigIntError;
 use prost::{DecodeError, Message};
-use prost_types::Struct;
+pub use prost_types::{ListValue, Struct, Timestamp};
 use tonic::transport;
 
 use crate::producer;
@@ -16,6 +16,7 @@ pub struct Subscription {
     pub ack_timeout_seconds: i32,
     pub max_unacked_records: i32,
     pub offset: SpecialOffset,
+    pub creation_time: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ impl From<Subscription> for hstreamdb_pb::Subscription {
             ack_timeout_seconds: subscription.ack_timeout_seconds,
             max_unacked_records: subscription.max_unacked_records,
             offset: subscription.offset as _,
+            creation_time: subscription.creation_time,
         }
     }
 }
@@ -61,6 +63,7 @@ impl From<hstreamdb_pb::Subscription> for Subscription {
             ack_timeout_seconds: subscription.ack_timeout_seconds,
             max_unacked_records: subscription.max_unacked_records,
             offset,
+            creation_time: subscription.creation_time,
         }
     }
 }

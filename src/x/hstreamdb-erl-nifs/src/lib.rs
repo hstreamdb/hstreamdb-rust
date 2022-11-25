@@ -225,6 +225,7 @@ fn async_create_stream(
                     replication_factor,
                     backlog_duration,
                     shard_count,
+                    creation_time: None,
                 })
                 .await?;
             Ok::<(), hstreamdb::Error>(())
@@ -262,10 +263,11 @@ fn async_create_subscription(
                         ack_timeout_seconds,
                         max_unacked_records,
                         offset,
+                        creation_time: None,
                     })
                     .await;
                 OwnedEnv::new().send_and_clear(&pid, |env| match result {
-                    Ok(()) => (create_subscription_reply(), ok()).encode(env),
+                    Ok(_) => (create_subscription_reply(), ok()).encode(env),
                     Err(err) => (create_subscription_reply(), error(), err.to_string()).encode(env),
                 })
             };
