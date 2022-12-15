@@ -13,6 +13,6 @@ pub mod utils;
 pub use channel_provider::ChannelProviderSettings;
 pub use client::Client;
 pub use common::{
-    CompressionType, Error, ListValue, Payload, Record, RecordId, Result, ShardId, SpecialOffset,
-    Stream, StreamShardOffset, Struct, Subscription, Timestamp,
+    CompressionType, Consumer, Error, ListValue, Payload, Record, RecordId, Result, ShardId,
+    SpecialOffset, Stream, StreamShardOffset, Struct, Subscription, Timestamp,
 };

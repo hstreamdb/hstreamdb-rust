@@ -1,8 +1,9 @@
 use common::{Stream, Subscription};
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{
-    CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, ListStreamsRequest,
-    ListSubscriptionsRequest, LookupSubscriptionRequest, NodeState,
+    CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, GetStreamRequest,
+    GetSubscriptionRequest, ListConsumersRequest, ListStreamsRequest, ListSubscriptionsRequest,
+    LookupSubscriptionRequest, NodeState,
 };
 use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::Request;
@@ -10,6 +11,7 @@ use url::Url;
 
 use crate::appender::Appender;
 use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
+use crate::common::Error::PBUnwrapError;
 use crate::producer::{FlushCallback, FlushSettings, Producer};
 use crate::{common, flow_controller, format_url, producer};
 
@@ -135,6 +137,21 @@ impl Client {
             .streams;
         Ok(streams)
     }
+
+    pub async fn get_stream<T: Into<String>>(&self, stream_name: T) -> common::Result<Stream> {
+        let stream = self
+            .channels
+            .channel()
+            .await
+            .get_stream(GetStreamRequest {
+                name: stream_name.into(),
+            })
+            .await?
+            .into_inner()
+            .stream
+            .ok_or_else(|| PBUnwrapError("stream".into()))?;
+        Ok(stream)
+    }
 }
 
 impl Client {
@@ -181,6 +198,24 @@ impl Client {
             .map(|x| x.into())
             .collect();
         Ok(subscriptions)
+    }
+
+    pub async fn get_subscription<T: Into<String>>(
+        &self,
+        subscription_id: T,
+    ) -> common::Result<Subscription> {
+        let subscription = self
+            .channels
+            .channel()
+            .await
+            .get_subscription(GetSubscriptionRequest {
+                id: subscription_id.into(),
+            })
+            .await?
+            .into_inner()
+            .subscription
+            .ok_or_else(|| PBUnwrapError("subscription".into()))?;
+        Ok(subscription.into())
     }
 }
 
@@ -245,6 +280,23 @@ impl Client {
                 server_node.port
             )),
         }
+    }
+}
+
+impl Client {
+    pub async fn list_consumers<T: Into<String>>(
+        &self,
+        subscription_id: T,
+    ) -> common::Result<Vec<common::Consumer>> {
+        let subscription_id: String = subscription_id.into();
+        Ok(self
+            .channels
+            .channel()
+            .await
+            .list_consumers(ListConsumersRequest { subscription_id })
+            .await?
+            .into_inner()
+            .consumers)
     }
 }
 

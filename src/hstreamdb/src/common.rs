@@ -1,6 +1,6 @@
 use std::io;
 
-pub use hstreamdb_pb::{CompressionType, RecordId, SpecialOffset, Stream};
+pub use hstreamdb_pb::{CompressionType, Consumer, RecordId, SpecialOffset, Stream};
 use hstreamdb_pb::{HStreamRecord, StreamingFetchRequest};
 use num_bigint::ParseBigIntError;
 use prost::{DecodeError, Message};
