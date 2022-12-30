@@ -33,7 +33,7 @@ rustler::atoms! {
     create_stream_reply,
     create_subscription_reply,
     earliest, latest,
-    start_producer_reply, stop_producer_reply,
+    start_producer_reply,
     append_reply, await_append_result_reply,
     start_streaming_fetch_reply, streaming_fetch,
     ack_reply,
