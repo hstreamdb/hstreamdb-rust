@@ -27,7 +27,7 @@ impl Appender {
 
 impl Appender {
     pub async fn append(
-        &mut self,
+        &self,
         record: Record,
     ) -> common::Result<oneshot::Receiver<Result<RecordId, Arc<common::Error>>>> {
         if let Some(flow_controller) = &self.flow_controller {
