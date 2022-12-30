@@ -372,14 +372,14 @@ fn async_append(
         match append_result {
             Ok(append_result) => env.send_and_clear(&pid, |env| {
                 (
-                    ok(),
                     append_reply(),
+                    ok(),
                     ResourceArc::new(AppendResultFuture::new(append_result)),
                 )
                     .encode(env)
             }),
             Err(err) => env.send_and_clear(&pid, |env| {
-                (error(), append_reply(), err.to_string()).encode(env)
+                (append_reply(), error(), err.to_string()).encode(env)
             }),
         }
     };
