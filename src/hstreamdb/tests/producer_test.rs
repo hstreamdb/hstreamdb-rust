@@ -53,7 +53,7 @@ async fn test_producer() {
     for _ in 0..10 {
         let appender = appender.clone();
         let join_handle = tokio::spawn(async move {
-            let mut appender = appender;
+            let appender = appender;
             let mut results = Vec::new();
 
             for _ in 0..100 {
