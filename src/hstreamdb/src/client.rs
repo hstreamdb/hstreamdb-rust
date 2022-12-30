@@ -44,6 +44,12 @@ impl Client {
                     url_scheme.to_string(),
                     Url::parse(format!("{url_scheme}{server_url}").as_str())?,
                 )
+            } else if url.scheme() == "hstreams" {
+                let url_scheme = "https";
+                (
+                    url_scheme.to_string(),
+                    Url::parse(format!("{url_scheme}{server_url}").as_str())?,
+                )
             } else {
                 (url.scheme().to_string(), url)
             }
