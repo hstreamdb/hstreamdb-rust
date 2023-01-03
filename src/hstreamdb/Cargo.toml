@@ -15,7 +15,7 @@ thiserror = "1.0.38"
 log = "0.4.17"
 
 flate2 = "1.0.25"
-zstd = "0.11.2"
+zstd = "0.12.1"
 
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
@@ -35,5 +35,5 @@ workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 hstreamdb-test-utils = { path = "../utils/hstreamdb-test-utils" }
 
 anyhow = "1.0.68"
-env_logger = "0.9.3"
+env_logger = "0.10.0"
 rand = "0.8.5"

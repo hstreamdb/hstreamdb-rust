@@ -32,7 +32,15 @@ impl Client {
         const HSTREAM_PREFIX: &str = "hstream";
         let server_url = server_url.into();
         let (url_scheme, url) = {
-            let url = Url::parse(&server_url)?;
+            let url = {
+                let mut url = Url::parse(&server_url)?;
+                if url.port().is_none() {
+                    url.set_port(Some(6570))
+                        .map_err(|()| common::Error::SetPortError(server_url.to_string()))?;
+                }
+                url
+            };
+
             if url.scheme() == HSTREAM_PREFIX {
                 let url_scheme = if channel_provider_settings.client_tls_config.is_none() {
                     "http"
