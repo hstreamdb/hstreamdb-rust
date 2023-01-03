@@ -11,29 +11,29 @@ readme = "README.md"
 keywords = ["hstreamdb", "streaming-database", "database-client"]
 
 [dependencies]
-thiserror = "1.0.34"
+thiserror = "1.0.38"
 log = "0.4.17"
 
-flate2 = "1.0.24"
+flate2 = "1.0.25"
 zstd = "0.11.2"
 
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
-md-5 = "0.10.1"
+md-5 = "0.10.5"
 
 hstreamdb-pb = { version = "0.2.0", path = "../hstreamdb-pb/" }
-prost-types = "0.11.1"
+prost-types = "0.11.5"
 
-prost = "0.11.0"
-tokio = { version = "1.21.0", features = ["rt-multi-thread", "parking_lot"] }
-tokio-stream = "0.1.9"
-tonic = { version = "0.8.2", features = ["tls"] }
-url = "2.2.2"
+prost = "0.11.5"
+tokio = { version = "1.23.0", features = ["rt-multi-thread", "parking_lot"] }
+tokio-stream = "0.1.11"
+tonic = { version = "0.8.3", features = ["tls"] }
+url = "2.3.1"
 workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 
 [dev-dependencies]
 hstreamdb-test-utils = { path = "../utils/hstreamdb-test-utils" }
 
-anyhow = "1.0.62"
-env_logger = "0.9.0"
+anyhow = "1.0.68"
+env_logger = "0.9.3"
 rand = "0.8.5"

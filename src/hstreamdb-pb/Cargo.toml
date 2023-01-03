@@ -11,10 +11,10 @@ readme = "README.md"
 keywords = ["hstreamdb", "streaming-database", "database-client"]
 
 [dependencies]
-prost = "0.11.0"
-prost-types = "0.11.1"
-tonic = "0.8.2"
+prost = "0.11.5"
+prost-types = "0.11.5"
+tonic = "0.8.3"
 workspace-hack = { version = "0.1", path = "../utils/workspace-hack" }
 
 [build-dependencies]
-tonic-build = "0.8.0"
+tonic-build = "0.8.4"
