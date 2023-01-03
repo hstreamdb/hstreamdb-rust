@@ -148,7 +148,7 @@ mod tests {
             .unwrap();
 
         tokio::spawn(async move {
-            let mut appender = appender;
+            let appender = appender;
             for _ in 0..5000 {
                 appender
                     .append(Record {
