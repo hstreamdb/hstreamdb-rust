@@ -5,7 +5,7 @@ use hstreamdb_pb::{
     GetSubscriptionRequest, ListConsumersRequest, ListStreamsRequest, ListSubscriptionsRequest,
     LookupSubscriptionRequest, NodeState,
 };
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use url::Url;
 
@@ -30,41 +30,30 @@ impl Client {
     where
         Destination: std::convert::Into<String>,
     {
-        const HSTREAM_PREFIX: &str = "hstream";
-        let server_url = server_url.into();
-        let (url_scheme, url) = {
-            let url = {
-                let mut url = Url::parse(&server_url)?;
-                if url.port().is_none() {
-                    url.set_port(Some(6570))
-                        .map_err(|()| common::Error::SetPortError(server_url.to_string()))?;
-                }
-                url
-            };
-
-            if url.scheme() == HSTREAM_PREFIX {
-                let url_scheme = if channel_provider_settings.client_tls_config.is_none() {
-                    "http"
-                } else {
-                    "https"
-                };
-                let server_url = &server_url[7..];
-                (
-                    url_scheme.to_string(),
-                    Url::parse(format!("{url_scheme}{server_url}").as_str())?,
-                )
-            } else if url.scheme() == "hstreams" {
-                let url_scheme = "https";
-                (
-                    url_scheme.to_string(),
-                    Url::parse(format!("{url_scheme}{server_url}").as_str())?,
-                )
-            } else {
-                (url.scheme().to_string(), url)
+        let server_url: String = server_url.into();
+        Url::parse(&server_url)?;
+        let (server_url, url_scheme) =
+            set_scheme(&server_url).ok_or(common::Error::InvalidUrl(server_url))?;
+        let server_url = {
+            let mut server_url = Url::parse(&server_url)?;
+            let port = server_url.port();
+            if port.is_none() {
+                server_url
+                    .set_port(Some(6570))
+                    .map_err(|()| common::Error::InvalidUrl(server_url.to_string()))?;
             }
+            server_url
         };
-        let mut hstream_api_client = HStreamApiClient::connect(String::from(url)).await?;
+
+        log::debug!("client init connect: scheme = {url_scheme}, url = {server_url}");
         let tls_config = channel_provider_settings.client_tls_config.clone();
+        let mut hstream_api_client = HStreamApiClient::new({
+            let mut endpoint = Endpoint::new(server_url.to_string())?;
+            if let Some(tls_config) = tls_config.clone() {
+                endpoint = endpoint.tls_config(tls_config)?;
+            }
+            endpoint.connect().await?
+        });
         let channels = new_channel_provider(
             &url_scheme,
             &mut hstream_api_client,
@@ -77,6 +66,18 @@ impl Client {
             tls_config,
         })
     }
+}
+
+fn set_scheme(url: &str) -> Option<(String, String)> {
+    let ix = url.find("://")?;
+    let scheme = &url[0..ix];
+    Some((
+        url.replace("hstream://", "http://")
+            .replace("hstreams://", "https://"),
+        scheme
+            .replace("hstream", "http")
+            .replace("hstreams", "https"),
+    ))
 }
 
 impl Client {
