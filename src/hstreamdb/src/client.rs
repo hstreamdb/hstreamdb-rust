@@ -5,7 +5,7 @@ use hstreamdb_pb::{
     GetSubscriptionRequest, ListConsumersRequest, ListStreamsRequest, ListSubscriptionsRequest,
     LookupSubscriptionRequest, NodeState,
 };
-use tonic::transport::{Channel, ClientTlsConfig};
+use tonic::transport::Channel;
 use tonic::Request;
 use url::Url;
 
@@ -13,6 +13,7 @@ use crate::appender::Appender;
 use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
 use crate::common::Error::PBUnwrapError;
 use crate::producer::{FlushCallback, FlushSettings, Producer};
+use crate::tls::ClientTlsConfig;
 use crate::{common, flow_controller, format_url, producer};
 
 pub struct Client {

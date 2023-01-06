@@ -8,6 +8,7 @@ pub mod consumer;
 mod flow_controller;
 pub mod producer;
 pub mod reader;
+pub mod tls;
 pub mod utils;
 
 pub use channel_provider::ChannelProviderSettings;
