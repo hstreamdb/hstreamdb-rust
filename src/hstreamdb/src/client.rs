@@ -1,7 +1,7 @@
 use common::{Stream, Subscription};
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{
-    CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, GetStreamRequest,
+    CompressionType, DeleteStreamRequest, DeleteSubscriptionRequest, EchoRequest, GetStreamRequest,
     GetSubscriptionRequest, ListConsumersRequest, ListStreamsRequest, ListSubscriptionsRequest,
     LookupSubscriptionRequest, NodeState,
 };
@@ -109,6 +109,20 @@ pub(crate) async fn get_available_node_addrs(
         })
         .collect::<Vec<_>>();
     Ok(cluster_addrs)
+}
+
+impl Client {
+    pub async fn echo<T: Into<String>>(&self, msg: T) -> common::Result<String> {
+        let msg = self
+            .channels
+            .channel()
+            .await
+            .echo(EchoRequest { msg: msg.into() })
+            .await?
+            .into_inner()
+            .msg;
+        Ok(msg)
+    }
 }
 
 impl Client {
