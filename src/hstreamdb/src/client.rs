@@ -32,9 +32,8 @@ impl Client {
     {
         let server_url: String = server_url.into();
         Url::parse(&server_url)?;
-        let (server_url, url_scheme) =
-            set_scheme(&server_url).ok_or(common::Error::InvalidUrl(server_url))?;
-        let server_url = {
+        let server_url = set_scheme(&server_url).ok_or(common::Error::InvalidUrl(server_url))?;
+        let (url_scheme, server_url) = {
             let mut server_url = Url::parse(&server_url)?;
             let port = server_url.port();
             if port.is_none() {
@@ -42,7 +41,7 @@ impl Client {
                     .set_port(Some(6570))
                     .map_err(|()| common::Error::InvalidUrl(server_url.to_string()))?;
             }
-            server_url
+            (server_url.scheme().to_string(), server_url)
         };
 
         log::debug!("client init connect: scheme = {url_scheme}, url = {server_url}");
@@ -68,16 +67,11 @@ impl Client {
     }
 }
 
-fn set_scheme(url: &str) -> Option<(String, String)> {
-    let ix = url.find("://")?;
-    let scheme = &url[0..ix];
-    Some((
+fn set_scheme(url: &str) -> Option<String> {
+    Some(
         url.replace("hstream://", "http://")
             .replace("hstreams://", "https://"),
-        scheme
-            .replace("hstream", "http")
-            .replace("hstreams", "https"),
-    ))
+    )
 }
 
 impl Client {
