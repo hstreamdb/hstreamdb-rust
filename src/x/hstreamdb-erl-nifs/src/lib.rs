@@ -30,6 +30,7 @@ rustler::atoms! {
     max_batch_len, max_batch_size, batch_deadline,
     on_flush,
     start_client_reply,
+    echo_reply,
     create_stream_reply,
     create_subscription_reply,
     earliest, latest,
@@ -48,6 +49,7 @@ rustler::init!(
     "hstreamdb",
     [
         async_start_client,
+        async_echo,
         async_create_stream,
         async_create_subscription,
         async_start_producer,
@@ -204,6 +206,21 @@ fn from_start_client_options(proplists: Term) -> hstreamdb::Result<ChannelProvid
         }
     }
     Ok(channel_provider_settings.build())
+}
+
+#[rustler::nif]
+fn async_echo(pid: LocalPid, client: ResourceArc<NifClient>, msg: String) {
+    let future = async move {
+        let client = &client.0;
+        let mut env = OwnedEnv::new();
+        match client.echo(msg).await {
+            Ok(msg) => env.send_and_clear(&pid, |env| (echo_reply(), ok(), msg).encode(env)),
+            Err(err) => env.send_and_clear(&pid, |env| {
+                (echo_reply(), error(), err.to_string()).encode(env)
+            }),
+        }
+    };
+    runtime::spawn(future);
 }
 
 #[rustler::nif]
