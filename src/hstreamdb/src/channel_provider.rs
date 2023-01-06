@@ -5,10 +5,11 @@ use std::iter::FromIterator;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
+use tonic::transport::{Channel, Endpoint};
 
 use crate::client::get_available_node_addrs;
 use crate::common;
+use crate::tls::ClientTlsConfig;
 
 #[derive(Debug)]
 pub(crate) struct Request(

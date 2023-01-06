@@ -95,7 +95,7 @@ pub enum Error {
     #[error(transparent)]
     AppenderSendError(producer::SendError),
     #[error("the URL {0} is cannot-be-a-base, or does not have a host, or has the file scheme")]
-    SetPortError(String),
+    InvalidUrl(String),
 }
 
 #[derive(Debug, thiserror::Error)]
