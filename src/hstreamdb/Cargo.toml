@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "hstreamdb"
-version = "0.2.1"
+version = "0.2.2"
 
 license = "BSD-3-Clause"
 description = "Rust client library for HStreamDB"
@@ -22,10 +22,10 @@ num-traits = "0.2.15"
 md-5 = "0.10.5"
 
 hstreamdb-pb = { version = "0.2.1", path = "../hstreamdb-pb/" }
-prost-types = "0.11.5"
+prost-types = "0.11.6"
 
-prost = "0.11.5"
-tokio = { version = "1.23.0", features = ["rt-multi-thread", "parking_lot"] }
+prost = "0.11.6"
+tokio = { version = "1.24.1", features = ["rt-multi-thread", "parking_lot"] }
 tokio-stream = "0.1.11"
 tonic = { version = "0.8.3", features = ["tls"] }
 url = "2.3.1"
