@@ -48,6 +48,7 @@ rustler::atoms! {
 rustler::init!(
     "hstreamdb",
     [
+        abort_tokio_task,
         async_start_client,
         async_echo,
         async_create_stream,
