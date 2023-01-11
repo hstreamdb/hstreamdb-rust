@@ -64,7 +64,7 @@ impl Client {
 }
 
 impl ShardReader {
-    pub async fn read_shard(
+    pub async fn read(
         &self,
         max_records: u32,
     ) -> common::Result<Vec<(RecordId, Result<Payload, DecodeError>)>> {
