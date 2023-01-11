@@ -760,7 +760,7 @@ fn async_read_shard(
     max_records: u32,
 ) -> Term<'_> {
     let future = async move {
-        let result = shard_reader.0.read_shard(max_records).await;
+        let result = shard_reader.0.read(max_records).await;
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
             Err(err) => (read_shard_reply(), error(), err.to_string()).encode(env),
             Ok(records) => (

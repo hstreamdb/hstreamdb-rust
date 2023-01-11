@@ -64,7 +64,7 @@ impl Client {
 }
 
 impl ShardReader {
-    pub async fn read_shard(
+    pub async fn read(
         &self,
         max_records: u32,
     ) -> common::Result<Vec<(RecordId, Result<Payload, DecodeError>)>> {
@@ -89,11 +89,11 @@ impl ShardReader {
         Ok(records)
     }
 
-    pub async fn delete_shard_reader(self) -> common::Result<()> {
-        let mut channel = self.channels.channel_at(self.server_url).await?;
+    pub async fn delete(&self) -> common::Result<()> {
+        let mut channel = self.channels.channel_at(self.server_url.clone()).await?;
         channel
             .delete_shard_reader(DeleteShardReaderRequest {
-                reader_id: self.reader_id,
+                reader_id: self.reader_id.clone(),
             })
             .await?;
         Ok(())
