@@ -198,6 +198,7 @@ impl Producer {
                 }
             };
         }
+        log::debug!("producer channels closed, awaiting for all tasks to be finished");
 
         self.shard_buffer_timer
             .iter()
@@ -213,9 +214,11 @@ impl Producer {
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task.await.unwrap_or_else(|err| {
-                log::error!("await for task in stopping producer failed: {err}")
+                log::error!("failed to await for task when stopping producer: {err}")
             })
         }
+
+        log::info!("producer: graceful shutdown")
     }
 
     async fn handle_flush_request(&mut self, request: Option<ShardId>) {

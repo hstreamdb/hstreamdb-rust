@@ -75,7 +75,7 @@ fn set_scheme(url: &str) -> Option<String> {
 }
 
 impl Client {
-    async fn new_channel_provider(
+    pub(crate) async fn new_channel_provider(
         &self,
         mut channel_provider_settings: ChannelProviderSettings,
     ) -> common::Result<Channels> {
