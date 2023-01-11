@@ -89,11 +89,11 @@ impl ShardReader {
         Ok(records)
     }
 
-    pub async fn delete_shard_reader(self) -> common::Result<()> {
-        let mut channel = self.channels.channel_at(self.server_url).await?;
+    pub async fn delete(&self) -> common::Result<()> {
+        let mut channel = self.channels.channel_at(self.server_url.clone()).await?;
         channel
             .delete_shard_reader(DeleteShardReaderRequest {
-                reader_id: self.reader_id,
+                reader_id: self.reader_id.clone(),
             })
             .await?;
         Ok(())
