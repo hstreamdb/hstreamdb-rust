@@ -104,11 +104,9 @@ impl FlowControllerServer {
         } else {
             match self.awaiting_requests.get_mut(&n) {
                 None => {
-                    _ = self.awaiting_requests.insert(n, {
-                        let mut xs = VecDeque::new();
-                        xs.push_back(awaiting_request);
-                        xs
-                    })
+                    _ = self
+                        .awaiting_requests
+                        .insert(n, VecDeque::from([awaiting_request]))
                 }
                 Some(v_ref) => v_ref.push_back(awaiting_request),
             }
