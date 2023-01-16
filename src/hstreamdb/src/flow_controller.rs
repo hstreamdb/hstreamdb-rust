@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use tokio::select;
 
@@ -37,7 +37,7 @@ pub(crate) struct FlowControllerServer {
     acquire_request_receiver: tokio::sync::mpsc::Receiver<AcquireRequest>,
     release_request_receiver: tokio::sync::mpsc::Receiver<usize>,
     bytes_available: usize,
-    awaiting_requests: VecDeque<AcquireRequest>,
+    awaiting_requests: BTreeMap<usize, VecDeque<tokio::sync::oneshot::Sender<()>>>,
 }
 
 pub(crate) async fn start(bytes_limit: usize) -> FlowControllerClient {
@@ -48,7 +48,7 @@ pub(crate) async fn start(bytes_limit: usize) -> FlowControllerClient {
             acquire_request_receiver,
             release_request_receiver,
             bytes_available: bytes_limit,
-            awaiting_requests: VecDeque::new(),
+            awaiting_requests: BTreeMap::new(),
         })
         .start(),
     );
@@ -82,11 +82,17 @@ impl FlowControllerServer {
 
     async fn handle_release(&mut self, n: usize) {
         self.bytes_available += n;
-        if let Some(head) = self.awaiting_requests.get(0) {
-            if self.bytes_available >= head.0 {
-                let (n, awaiting_request) = self.awaiting_requests.pop_front().unwrap();
-                self.bytes_available -= n;
-                awaiting_request.send(()).unwrap()
+
+        for (&request_size, requests_ref) in self.awaiting_requests.iter_mut() {
+            if requests_ref.is_empty() {
+                continue;
+            }
+            if request_size <= self.bytes_available {
+                let request = requests_ref.pop_front().unwrap();
+                self.bytes_available -= request_size;
+                request.send(()).unwrap();
+            } else {
+                return;
             }
         }
     }
@@ -96,7 +102,14 @@ impl FlowControllerServer {
             self.bytes_available -= n;
             awaiting_request.send(()).unwrap()
         } else {
-            self.awaiting_requests.push_back((n, awaiting_request))
+            match self.awaiting_requests.get_mut(&n) {
+                None => {
+                    _ = self
+                        .awaiting_requests
+                        .insert(n, VecDeque::from([awaiting_request]))
+                }
+                Some(v_ref) => v_ref.push_back(awaiting_request),
+            }
         }
     }
 }

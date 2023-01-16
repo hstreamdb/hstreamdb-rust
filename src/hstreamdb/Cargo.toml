@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "hstreamdb"
-version = "0.2.2"
+version = "0.2.3"
 
 license = "BSD-3-Clause"
 description = "Rust client library for HStreamDB"
@@ -21,7 +21,7 @@ num-bigint = "0.4.3"
 num-traits = "0.2.15"
 md-5 = "0.10.5"
 
-hstreamdb-pb = { version = "0.2.1", path = "../hstreamdb-pb/" }
+hstreamdb-pb = { version = "0.3.0", path = "../hstreamdb-pb/" }
 prost-types = "0.11.6"
 
 prost = "0.11.6"
