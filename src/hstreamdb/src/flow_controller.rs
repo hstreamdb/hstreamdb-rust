@@ -91,6 +91,8 @@ impl FlowControllerServer {
                 let request = requests_ref.pop_front().unwrap();
                 self.bytes_available -= request_size;
                 request.send(()).unwrap();
+            } else {
+                return;
             }
         }
     }
