@@ -5,12 +5,11 @@ use hstreamdb_pb::{
     GetSubscriptionRequest, ListConsumersRequest, ListStreamsRequest, ListSubscriptionsRequest,
     LookupSubscriptionRequest, NodeState,
 };
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
 use tonic::Request;
-use url::Url;
 
 use crate::appender::Appender;
-use crate::channel_provider::{new_channel_provider, ChannelProviderSettings, Channels};
+use crate::channel_provider::{self, new_channel_provider, ChannelProviderSettings, Channels};
 use crate::common::Error::PBUnwrapError;
 use crate::producer::{FlushCallback, FlushSettings, Producer};
 use crate::tls::ClientTlsConfig;
@@ -30,29 +29,10 @@ impl Client {
     where
         Destination: std::convert::Into<String>,
     {
-        let server_url: String = server_url.into();
-        Url::parse(&server_url)?;
-        let server_url = set_scheme(&server_url).ok_or(common::Error::InvalidUrl(server_url))?;
-        let (url_scheme, server_url) = {
-            let mut server_url = Url::parse(&server_url)?;
-            let port = server_url.port();
-            if port.is_none() {
-                server_url
-                    .set_port(Some(6570))
-                    .map_err(|()| common::Error::InvalidUrl(server_url.to_string()))?;
-            }
-            (server_url.scheme().to_string(), server_url)
-        };
-
-        log::debug!("client init connect: scheme = {url_scheme}, url = {server_url}");
         let tls_config = channel_provider_settings.client_tls_config.clone();
-        let mut hstream_api_client = HStreamApiClient::new({
-            let mut endpoint = Endpoint::new(server_url.to_string())?;
-            if let Some(tls_config) = tls_config.clone() {
-                endpoint = endpoint.tls_config(tls_config)?;
-            }
-            endpoint.connect().await?
-        });
+        let (endpoint, url_scheme) =
+            channel_provider::refine_endpoint(server_url.into(), tls_config.clone()).await?;
+        let mut hstream_api_client = HStreamApiClient::new(endpoint.connect().await?);
         let channels = new_channel_provider(
             &url_scheme,
             &mut hstream_api_client,
@@ -65,13 +45,6 @@ impl Client {
             tls_config,
         })
     }
-}
-
-fn set_scheme(url: &str) -> Option<String> {
-    Some(
-        url.replace("hstream://", "http://")
-            .replace("hstreams://", "https://"),
-    )
 }
 
 impl Client {

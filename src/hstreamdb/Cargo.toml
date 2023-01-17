@@ -15,7 +15,7 @@ thiserror = "1.0.38"
 log = "0.4.17"
 
 flate2 = "1.0.25"
-zstd = "0.12.1"
+zstd = "0.12.2"
 
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
