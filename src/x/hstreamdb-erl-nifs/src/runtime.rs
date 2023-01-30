@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use tokio::runtime::{self, Runtime};
@@ -15,10 +16,14 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) fn spawn<T>(future: T) -> JoinHandle<T::Output>
+pub(crate) fn spawn_with_timeout<T>(future: T, timeout_value: Option<u64>) -> JoinHandle<()>
 where
-    T: Future + Send + 'static,
-    T::Output: Send + 'static,
+    T: Future<Output = ()> + Send + 'static,
 {
-    TOKIO_RT.spawn(future)
+    match timeout_value {
+        None => TOKIO_RT.spawn(future),
+        Some(timeout) => TOKIO_RT.spawn(async move {
+            if let Ok(()) = tokio::time::timeout(Duration::from_millis(timeout), future).await {}
+        }),
+    }
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::mem;
 use std::sync::Arc;
 
@@ -43,12 +45,47 @@ rustler::atoms! {
     create_shard_reader_reply, read_shard_reply,
     bad_hstream_record,
     tls_config,
+    infinity,
+}
+
+const BAD_TIMEOUT: &str = "bad receive timeout value";
+
+macro_rules! ensure_timeout_value {
+    ($env:ident, $timeout_value:ident) => {
+        match ensure_timeout_value_impl($timeout_value) {
+            Err(()) => return new_timeout_value_error($env),
+            Ok(timeout_value) => timeout_value,
+        }
+    };
+}
+
+fn ensure_timeout_value_impl(timeout_value: Term) -> Result<Option<u64>, ()> {
+    if timeout_value.is_atom() {
+        let timeout_value: NifResult<Atom> = timeout_value.decode();
+        if timeout_value.is_ok() && timeout_value.unwrap() == infinity() {
+            Ok(None)
+        } else {
+            Err(())
+        }
+    } else if timeout_value.is_number() {
+        let timeout_value: NifResult<u64> = timeout_value.decode();
+        if let Ok(timeout_value) = timeout_value {
+            Ok(Some(timeout_value))
+        } else {
+            Err(())
+        }
+    } else {
+        Err(())
+    }
+}
+
+fn new_timeout_value_error(env: Env) -> Term {
+    (error(), BAD_TIMEOUT.to_string()).encode(env)
 }
 
 rustler::init!(
     "hstreamdb",
     [
-        abort_tokio_task,
         async_start_client,
         async_echo,
         async_create_stream,
@@ -67,31 +104,6 @@ rustler::init!(
     ],
     load = load
 );
-
-trait JoinHandle {
-    fn abort(&self);
-}
-
-struct NifJoinHandle(Box<dyn JoinHandle + Send + Sync>);
-
-impl<T> JoinHandle for tokio::task::JoinHandle<T> {
-    fn abort(&self) {
-        tokio::task::JoinHandle::abort(self)
-    }
-}
-
-#[rustler::nif]
-fn abort_tokio_task(join_handle: ResourceArc<NifJoinHandle>) {
-    join_handle.0.abort();
-}
-
-impl NifJoinHandle {
-    fn new<T: Send + Sync + 'static>(
-        join_handle: tokio::task::JoinHandle<T>,
-    ) -> ResourceArc<NifJoinHandle> {
-        ResourceArc::new(NifJoinHandle(Box::new(join_handle)))
-    }
-}
 
 #[derive(NifRecord)]
 #[tag = "record_id"]
@@ -173,7 +185,6 @@ impl NifResponder {
 struct NifShardReader(ShardReader);
 
 fn load(env: Env, _: Term) -> bool {
-    resource!(NifJoinHandle, env);
     resource!(NifClient, env);
     resource!(NifAppender, env);
     resource!(AppendResultFuture, env);
@@ -185,7 +196,14 @@ fn load(env: Env, _: Term) -> bool {
 }
 
 #[rustler::nif]
-fn async_start_client<'a>(env: Env<'a>, pid: LocalPid, url: String, options: Term) -> Term<'a> {
+fn async_start_client<'a>(
+    env: Env<'a>,
+    pid: LocalPid,
+    url: String,
+    options: Term,
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     match from_start_client_options(options) {
         Err(err) => (error(), (badarg(), err.to_string())).encode(env),
         Ok(channel_provider_settings) => {
@@ -201,8 +219,8 @@ fn async_start_client<'a>(env: Env<'a>, pid: LocalPid, url: String, options: Ter
                     Err(err) => (start_client_reply(), error(), err.to_string()).encode(env),
                 })
             };
-            let join_handle = runtime::spawn(future);
-            (ok(), NifJoinHandle::new(join_handle)).encode(env)
+            _ = runtime::spawn_with_timeout(future, timeout_value);
+            ok().to_term(env)
         }
     }
 }
@@ -236,12 +254,14 @@ fn from_start_client_options(proplists: Term) -> hstreamdb::Result<ChannelProvid
 }
 
 #[rustler::nif]
-fn async_echo(
-    env: Env<'_>,
+fn async_echo<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     client: ResourceArc<NifClient>,
     msg: String,
-) -> Term<'_> {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let future = async move {
         let client = &client.0;
         let mut env = OwnedEnv::new();
@@ -252,20 +272,22 @@ fn async_echo(
             }),
         }
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
 #[rustler::nif]
-fn async_create_stream(
-    env: Env<'_>,
+fn async_create_stream<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     client: ResourceArc<NifClient>,
     stream_name: String,
     replication_factor: u32,
     backlog_duration: u32,
     shard_count: u32,
-) -> Term<'_> {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let future = async move {
         let create_stream_result = async move {
             let client = &client.0;
@@ -286,14 +308,13 @@ fn async_create_stream(
             Err(err) => (create_stream_reply(), error(), err.to_string()).encode(env),
         });
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
-#[allow(clippy::too_many_arguments)]
 #[rustler::nif]
-fn async_create_subscription(
-    env: Env,
+fn async_create_subscription<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     client: ResourceArc<NifClient>,
     subscription_id: String,
@@ -301,7 +322,9 @@ fn async_create_subscription(
     ack_timeout_seconds: i32,
     max_unacked_records: i32,
     special_offset: Atom,
-) -> Term {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     match atom_to_special_offset(special_offset) {
         Err(err) => (error(), (badarg(), err)).encode(env),
         Ok(offset) => {
@@ -322,8 +345,8 @@ fn async_create_subscription(
                     Err(err) => (create_subscription_reply(), error(), err.to_string()).encode(env),
                 })
             };
-            let join_handle = runtime::spawn(future);
-            (ok(), NifJoinHandle::new(join_handle)).encode(env)
+            _ = runtime::spawn_with_timeout(future, timeout_value);
+            ok().to_term(env)
         }
     }
 }
@@ -343,7 +366,8 @@ fn try_start_producer(
     client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
-) -> hstreamdb::common::Result<ResourceArc<NifJoinHandle>> {
+    timeout_value: Option<u64>,
+) -> hstreamdb::common::Result<()> {
     let ProducerSettings {
         compression_type,
         concurrency_limit,
@@ -388,8 +412,8 @@ fn try_start_producer(
             Err(err) => (start_producer_reply(), error(), err.to_string()).encode(env),
         })
     };
-    let join_handle = runtime::spawn(future);
-    Ok(NifJoinHandle::new(join_handle))
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    Ok(())
 }
 
 #[rustler::nif]
@@ -399,9 +423,12 @@ fn async_start_producer<'a>(
     client: ResourceArc<NifClient>,
     stream_name: String,
     settings: Term,
+    timeout_value: Term,
 ) -> NifResult<Term<'a>> {
-    try_start_producer(pid, client, stream_name, settings)
-        .map(|join_handle| (ok(), join_handle).encode(env))
+    let timeout_value = ensure_timeout_value_impl(timeout_value)
+        .map_err(|()| rustler::Error::Term(Box::new(BAD_TIMEOUT.to_string())))?;
+    try_start_producer(pid, client, stream_name, settings, timeout_value)
+        .map(|()| ok().to_term(env))
         .map_err(|err| rustler::Error::Term(Box::new(err.to_string())))
 }
 
@@ -412,7 +439,9 @@ fn async_append<'a>(
     producer: ResourceArc<NifAppender>,
     partition_key: String,
     raw_payload: Binary,
+    timeout_value: Term,
 ) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let raw_payload = raw_payload.to_vec();
     let future = async move {
         let record = Record {
@@ -436,8 +465,8 @@ fn async_append<'a>(
             }),
         }
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
 impl AppendResultFuture {
@@ -447,11 +476,13 @@ impl AppendResultFuture {
 }
 
 #[rustler::nif]
-fn async_await_append_result(
-    env: Env<'_>,
+fn async_await_append_result<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     x: ResourceArc<AppendResultFuture>,
-) -> Term<'_> {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     use crate::AppendResult::*;
     let future = async move {
         let result = &x.1;
@@ -485,8 +516,8 @@ fn async_await_append_result(
             Error(err) => (await_append_result_reply(), error(), err.to_string()).encode(env),
         })
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
 fn atom_to_compression_type(compression_type: Atom) -> Option<CompressionType> {
@@ -609,14 +640,16 @@ fn get_on_flush_callback(pid: Term) -> hstreamdb::Result<FlushCallback> {
 }
 
 #[rustler::nif]
-fn async_start_streaming_fetch(
-    env: Env<'_>,
+fn async_start_streaming_fetch<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     client: ResourceArc<NifClient>,
     return_pid: LocalPid,
     consumer_name: String,
     subscription_id: String,
-) -> Term<'_> {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let future = async move {
         let client: &Client = &client.0;
         let mut env = OwnedEnv::new();
@@ -664,12 +697,18 @@ fn async_start_streaming_fetch(
             }
         }
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
 #[rustler::nif]
-fn async_ack(env: Env<'_>, pid: LocalPid, responder: ResourceArc<NifResponder>) -> Term<'_> {
+fn async_ack<'a>(
+    env: Env<'a>,
+    pid: LocalPid,
+    responder: ResourceArc<NifResponder>,
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let future = async move {
         let result = responder.ack().await;
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
@@ -677,11 +716,10 @@ fn async_ack(env: Env<'_>, pid: LocalPid, responder: ResourceArc<NifResponder>) 
             Err(err) => (ack_reply(), error(), err).encode(env),
         })
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
-#[allow(clippy::too_many_arguments)]
 #[rustler::nif]
 fn async_create_shard_reader<'a>(
     env: Env<'a>,
@@ -692,7 +730,9 @@ fn async_create_shard_reader<'a>(
     shard_id: ShardId,
     stream_shard_offset: Term,
     timeout_ms: u32,
+    timeout_value: Term,
 ) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     match term_to_stream_shard_offset(stream_shard_offset) {
         Err(err) => (error(), (badarg(), err)).encode(env),
         Ok(shard_offset) => {
@@ -718,8 +758,8 @@ fn async_create_shard_reader<'a>(
                     Err(err) => (create_shard_reader_reply(), error(), err.to_string()).encode(env),
                 })
             };
-            let join_handle = runtime::spawn(future);
-            (ok(), NifJoinHandle::new(join_handle)).encode(env)
+            _ = runtime::spawn_with_timeout(future, timeout_value);
+            ok().to_term(env)
         }
     }
 }
@@ -754,12 +794,14 @@ fn term_to_stream_shard_offset(stream_shard_offset: Term) -> Result<StreamShardO
 }
 
 #[rustler::nif]
-fn async_read_shard(
-    env: Env<'_>,
+fn async_read_shard<'a>(
+    env: Env<'a>,
     pid: LocalPid,
     shard_reader: ResourceArc<NifShardReader>,
     max_records: u32,
-) -> Term<'_> {
+    timeout_value: Term,
+) -> Term<'a> {
+    let timeout_value = ensure_timeout_value!(env, timeout_value);
     let future = async move {
         let result = shard_reader.0.read(max_records).await;
         OwnedEnv::new().send_and_clear(&pid, |env| match result {
@@ -797,8 +839,8 @@ fn async_read_shard(
                 .encode(env),
         })
     };
-    let join_handle = runtime::spawn(future);
-    (ok(), NifJoinHandle::new(join_handle)).encode(env)
+    _ = runtime::spawn_with_timeout(future, timeout_value);
+    ok().to_term(env)
 }
 
 #[derive(Clone)]
