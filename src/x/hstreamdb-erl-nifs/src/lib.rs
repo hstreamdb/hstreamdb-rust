@@ -7,6 +7,7 @@ use hstreamdb::appender::Appender;
 use hstreamdb::client::Client;
 use hstreamdb::producer::{FlushCallback, FlushSettings};
 use hstreamdb::reader::ShardReader;
+use hstreamdb::utils::try_new_client_tls_config_from_paths;
 use hstreamdb::{
     ChannelProviderSettings, CompressionType, Record, RecordId, ShardId, SpecialOffset, Stream,
     StreamShardOffset, Subscription,
@@ -97,6 +98,7 @@ rustler::init!(
         async_ack,
         async_create_shard_reader,
         async_read_shard,
+        new_client_tls_config_from_paths,
         new_client_tls_config,
         set_domain_name,
         set_ca_certificate,
@@ -846,6 +848,12 @@ fn async_read_shard<'a>(
 #[derive(Clone)]
 struct NifClientTlsConfig(ClientTlsConfig);
 
+impl NifClientTlsConfig {
+    fn new(client_tls_config: ClientTlsConfig) -> ResourceArc<Self> {
+        ResourceArc::new(NifClientTlsConfig(client_tls_config))
+    }
+}
+
 #[rustler::nif]
 fn new_client_tls_config() -> ResourceArc<NifClientTlsConfig> {
     ResourceArc::new(NifClientTlsConfig(ClientTlsConfig::new()))
@@ -866,9 +874,9 @@ fn set_ca_certificate(
     ca_certificate: Binary,
 ) -> ResourceArc<NifClientTlsConfig> {
     let NifClientTlsConfig(tls_config) = (*tls_config).clone();
-    ResourceArc::new(NifClientTlsConfig(
+    NifClientTlsConfig::new(
         tls_config.ca_certificate(Certificate::from_pem(ca_certificate.as_slice())),
-    ))
+    )
 }
 
 #[rustler::nif]
@@ -879,7 +887,24 @@ fn set_identity(
 ) -> ResourceArc<NifClientTlsConfig> {
     let NifClientTlsConfig(tls_config) = &*tls_config;
     let tls_config = tls_config.clone();
-    ResourceArc::new(NifClientTlsConfig(
+    NifClientTlsConfig::new(
         tls_config.identity(Identity::from_pem(cert.as_slice(), key.as_slice())),
-    ))
+    )
+}
+
+#[rustler::nif]
+fn new_client_tls_config_from_paths(
+    env: Env,
+    ca_certificate_path: String,
+    identity_cert_path: String,
+    identity_key_path: String,
+) -> Term {
+    match try_new_client_tls_config_from_paths(
+        ca_certificate_path,
+        identity_cert_path,
+        identity_key_path,
+    ) {
+        Ok(client_tls_config) => (ok(), NifClientTlsConfig::new(client_tls_config)).encode(env),
+        Err(err) => (error(), err.to_string()).encode(env),
+    }
 }

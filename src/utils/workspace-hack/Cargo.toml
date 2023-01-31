@@ -14,27 +14,27 @@ publish = false
 
 ### BEGIN HAKARI SECTION
 [dependencies]
-bytes = { version = "1", features = ["std"] }
+bytes = { version = "1" }
 indexmap = { version = "1", default-features = false, features = ["std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
-prost = { version = "0.11", features = ["prost-derive", "std"] }
-prost-types = { version = "0.11", features = ["std"] }
-rand = { version = "0.8", features = ["alloc", "getrandom", "libc", "rand_chacha", "small_rng", "std", "std_rng"] }
-regex = { version = "1", features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
-regex-syntax = { version = "0.6", features = ["unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
-tokio = { version = "1", features = ["bytes", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "parking_lot", "rt", "rt-multi-thread", "socket2", "sync", "time", "tokio-macros"] }
-tonic = { version = "0.8", features = ["async-trait", "axum", "channel", "codegen", "h2", "hyper", "hyper-timeout", "prost", "prost-derive", "prost1", "rustls-pemfile", "tls", "tokio", "tokio-rustls", "tower", "tracing-futures", "transport"] }
+prost = { version = "0.11" }
+prost-types = { version = "0.11" }
+rand = { version = "0.8", features = ["small_rng"] }
+regex = { version = "1" }
+regex-syntax = { version = "0.6" }
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "rt-multi-thread", "sync", "time"] }
+tonic = { version = "0.8", features = ["tls"] }
 
 [build-dependencies]
-bytes = { version = "1", features = ["std"] }
-cc = { version = "1", default-features = false, features = ["jobserver", "parallel"] }
-either = { version = "1", features = ["use_std"] }
+bytes = { version = "1" }
+cc = { version = "1", default-features = false, features = ["parallel"] }
+either = { version = "1" }
 indexmap = { version = "1", default-features = false, features = ["std"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
-prost = { version = "0.11", features = ["prost-derive", "std"] }
-prost-types = { version = "0.11", features = ["std"] }
-regex = { version = "1", features = ["aho-corasick", "memchr", "perf", "perf-cache", "perf-dfa", "perf-inline", "perf-literal", "std", "unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
-regex-syntax = { version = "0.6", features = ["unicode", "unicode-age", "unicode-bool", "unicode-case", "unicode-gencat", "unicode-perl", "unicode-script", "unicode-segment"] }
-syn = { version = "1", features = ["clone-impls", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit", "visit-mut"] }
+prost = { version = "0.11" }
+prost-types = { version = "0.11" }
+regex = { version = "1" }
+regex-syntax = { version = "0.6" }
+syn = { version = "1", features = ["extra-traits", "full", "visit", "visit-mut"] }
 
 ### END HAKARI SECTION
