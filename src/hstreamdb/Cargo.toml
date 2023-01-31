@@ -14,7 +14,7 @@ keywords = ["hstreamdb", "streaming-database", "database-client"]
 thiserror = "1.0.38"
 log = "0.4.17"
 
-moka = "0.9.6"
+moka = { version = "0.9.6", features = ["future"] }
 
 flate2 = "1.0.25"
 zstd = "0.12.2"
@@ -27,7 +27,7 @@ hstreamdb-pb = { version = "0.3.1", path = "../hstreamdb-pb/" }
 prost-types = "0.11.6"
 
 prost = "0.11.6"
-tokio = { version = "1.24.2", features = ["rt-multi-thread", "parking_lot"] }
+tokio = { version = "1.25.0", features = ["rt-multi-thread", "parking_lot"] }
 tokio-stream = "0.1.11"
 tonic = { version = "0.8.3", features = ["tls"] }
 url = "2.3.1"

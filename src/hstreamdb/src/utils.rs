@@ -1,4 +1,6 @@
 use std::io::Write;
+use std::path::Path;
+use std::{fs, io};
 
 use flate2::write::GzDecoder;
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
@@ -9,7 +11,7 @@ use md5::{Digest, Md5};
 use num_bigint::BigInt;
 use num_traits::Num;
 use prost::Message;
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use crate::common::{self, PartitionKey, ShardId};
 use crate::{format_url, Error};
@@ -168,4 +170,19 @@ mod tests {
         println!("result.len() = {}", result.len());
         assert!(result.len() > 100)
     }
+}
+
+pub fn try_new_client_tls_config_from_paths<P: AsRef<Path>>(
+    ca_certificate: P,
+    identity_cert: P,
+    identity_key: P,
+) -> io::Result<ClientTlsConfig> {
+    let ca_certificate = fs::read(ca_certificate)?;
+    let identity_cert = fs::read(identity_cert)?;
+    let identity_key = fs::read(identity_key)?;
+
+    let client_tls_config = ClientTlsConfig::new()
+        .ca_certificate(Certificate::from_pem(ca_certificate))
+        .identity(Identity::from_pem(identity_cert, identity_key));
+    Ok(client_tls_config)
 }
