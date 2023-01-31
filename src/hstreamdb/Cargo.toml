@@ -14,8 +14,6 @@ keywords = ["hstreamdb", "streaming-database", "database-client"]
 thiserror = "1.0.38"
 log = "0.4.17"
 
-moka = { version = "0.9.6", features = ["future"] }
-
 flate2 = "1.0.25"
 zstd = "0.12.2"
 
