@@ -7,7 +7,7 @@ use hstreamdb::{ChannelProviderSettings, Client};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_tls() {
-    if let Ok(_) = env::var("ENDPOINT") {
+    if env::var("ENDPOINT").is_ok() {
         test_tls_impl().await
     } else {
         log::warn!("cloud endpoint is not presented");

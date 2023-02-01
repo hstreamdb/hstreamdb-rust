@@ -13,6 +13,11 @@ pub async fn init_client() -> anyhow::Result<Client> {
     Ok(Client(client))
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn make_ci_happy() {
+    init_client().await.unwrap().0.list_streams().await.unwrap();
+}
+
 pub struct Client(pub hstreamdb::Client);
 
 impl Client {
