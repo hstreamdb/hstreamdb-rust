@@ -20,7 +20,6 @@ use rustler::{
     ResourceArc, Term,
 };
 use tokio::sync::{oneshot, Mutex, MutexGuard};
-use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 
 mod runtime;

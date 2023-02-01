@@ -3,7 +3,7 @@ use std::env;
 use hstreamdb::appender::Appender;
 use hstreamdb::common::{CompressionType, SpecialOffset, Stream};
 use hstreamdb::producer::{FlushSettings, Producer};
-use hstreamdb::{ChannelProviderSettings, Record, Subscription};
+use hstreamdb::{ChannelProviderSettings, ConsumerStream, Record, Subscription, SubscriptionId};
 use hstreamdb_test_utils::rand_alphanumeric;
 
 pub async fn init_client() -> anyhow::Result<Client> {
@@ -15,7 +15,15 @@ pub async fn init_client() -> anyhow::Result<Client> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn make_ci_happy() {
-    init_client().await.unwrap().0.list_streams().await.unwrap();
+    let client = init_client().await.unwrap();
+    let (stream, sub) = client.new_stream_subscription().await.unwrap();
+    let mut consumer = client.new_consumer(sub.subscription_id).await.unwrap();
+    let (appender, producer) = client.new_sync_producer(stream.stream_name).await.unwrap();
+    appender.append(rand_raw_record(4500)).await.unwrap();
+    producer.start().await;
+    while let Some(x) = consumer.next().await {
+        x.1.ack().unwrap();
+    }
 }
 
 pub struct Client(pub hstreamdb::Client);
@@ -109,5 +117,24 @@ impl Client {
         let stream_name = stream.stream_name.clone();
         let subscription = self.new_subscription(stream_name).await?;
         Ok((stream, subscription))
+    }
+
+    pub async fn new_consumer(
+        &self,
+        subscription_id: SubscriptionId,
+    ) -> anyhow::Result<ConsumerStream> {
+        let fetching_stream = self
+            .0
+            .streaming_fetch(rand_alphanumeric(20), subscription_id)
+            .await
+            .unwrap();
+        Ok(fetching_stream)
+    }
+}
+
+pub fn rand_raw_record(len: usize) -> Record {
+    Record {
+        partition_key: rand_alphanumeric(10),
+        payload: hstreamdb::Payload::RawRecord(rand_alphanumeric(len).into_bytes()),
     }
 }
