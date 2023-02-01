@@ -1,3 +1,5 @@
+mod common;
+
 use std::env;
 
 use hstreamdb::tls::{Certificate, ClientTlsConfig, Identity};
@@ -36,4 +38,12 @@ async fn test_tls_impl() {
     .unwrap();
 
     log::info!("{:?}", client.list_streams().await.unwrap());
+
+    let client = common::Client(client);
+
+    let (stream, _sub) = client.new_stream_subscription().await.unwrap();
+    client
+        .write_rand(stream.stream_name, 10, 2000, 1000)
+        .await
+        .unwrap();
 }

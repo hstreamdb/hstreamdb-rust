@@ -13,7 +13,7 @@ pub async fn init_client() -> anyhow::Result<Client> {
     Ok(Client(client))
 }
 
-pub struct Client(hstreamdb::Client);
+pub struct Client(pub hstreamdb::Client);
 
 impl Client {
     pub async fn new_stream(&self) -> anyhow::Result<Stream> {
