@@ -61,9 +61,10 @@ async fn test_consumer() {
         .await
         .unwrap();
 
+    let mut join_handles = Vec::new();
     for _ in 0..10 {
         let appender = appender.clone();
-        tokio::spawn(async move {
+        let join_handle = tokio::spawn(async move {
             let appender = appender;
             let mut results = Vec::new();
 
@@ -83,13 +84,20 @@ async fn test_consumer() {
             drop(appender);
             results
         });
+        join_handles.push(join_handle)
     }
 
     let producer = producer.start();
     drop(appender);
     producer.await;
 
-    log::info!("ready for `streaming_fetch`");
+    for join_handle in join_handles {
+        let join_handle = join_handle.await.unwrap();
+        for result in join_handle {
+            println!("{}", result.await.unwrap().unwrap())
+        }
+    }
+
     let mut stream = client
         .streaming_fetch(
             format!("consumer-{}", rand_alphanumeric(10)),

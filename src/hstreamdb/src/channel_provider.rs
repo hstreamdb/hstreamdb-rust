@@ -150,15 +150,11 @@ impl ChannelProvider {
         while let Some(request) = self.request_receiver.recv().await {
             match request.0 {
                 Some(url) => match self.channels.get(&url) {
-                    Some(channel) => {
-                        log::debug!("use cached channel at {url}");
-                        request
-                            .1
-                            .send(Ok(channel.clone()))
-                            .unwrap_or_else(|err| log::error!("channels reply error: {err:?}"))
-                    }
+                    Some(channel) => request
+                        .1
+                        .send(Ok(channel.clone()))
+                        .unwrap_or_else(|err| log::error!("channels reply error: {err:?}")),
                     None => {
-                        log::debug!("new channel at {url}");
                         let reply = HStreamApiClient::connect(url.clone())
                             .await
                             .map_err(common::Error::TransportError);
