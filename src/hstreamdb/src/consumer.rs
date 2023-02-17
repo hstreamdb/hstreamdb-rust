@@ -10,6 +10,7 @@ use tonic::{Request, Streaming};
 use crate::client::Client;
 use crate::common::{self, Payload};
 use crate::utils::decode_received_records;
+use crate::SubscriptionId;
 
 pub struct ConsumerStream(UnboundedReceiverStream<(Payload, Responder)>);
 
@@ -23,7 +24,7 @@ impl Client {
     pub async fn streaming_fetch(
         &self,
         consumer_name: String,
-        subscription_id: String,
+        subscription_id: SubscriptionId,
     ) -> common::Result<ConsumerStream> {
         let url = self.lookup_subscription(subscription_id.clone()).await?;
         log::debug!("lookup subscription for {subscription_id}, url = {url}");
