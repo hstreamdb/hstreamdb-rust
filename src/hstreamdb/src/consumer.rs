@@ -17,6 +17,7 @@ impl Client {
         subscription_id: String,
     ) -> common::Result<UnboundedReceiverStream<(Payload, Responder)>> {
         let url = self.lookup_subscription(subscription_id.clone()).await?;
+        log::debug!("lookup subscription for {subscription_id}, url = {url}");
         let mut channel = self.channels.channel_at(url).await?;
 
         let request = StreamingFetchRequest {
@@ -27,15 +28,14 @@ impl Client {
         let (request_sender, request_receiver) =
             tokio::sync::mpsc::unbounded_channel::<StreamingFetchRequest>();
         let request_stream = UnboundedReceiverStream::new(request_receiver);
+        request_sender
+            .send(request)
+            .map_err(common::Error::StreamingFetchInitError)?;
         let response = channel
             .streaming_fetch(Request::new(request_stream))
             .await?
             .into_inner();
         log::debug!("start streaming fetch");
-        request_sender
-            .send(request)
-            .map_err(common::Error::StreamingFetchInitError)?;
-        log::debug!("finish init request");
 
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(Payload, Responder)>();
 
