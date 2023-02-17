@@ -1,4 +1,3 @@
-use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
 use hstreamdb_pb::{StreamingFetchRequest, StreamingFetchResponse};
 use prost::Message;
 use prost_types::Struct;
@@ -17,8 +16,8 @@ impl Client {
         consumer_name: String,
         subscription_id: String,
     ) -> common::Result<UnboundedReceiverStream<(Payload, Responder)>> {
-        let channel = self.lookup_subscription(subscription_id.clone()).await?;
-        let mut channel = HStreamApiClient::connect(channel).await?;
+        let url = self.lookup_subscription(subscription_id.clone()).await?;
+        let mut channel = self.channels.channel_at(url).await?;
 
         let request = StreamingFetchRequest {
             subscription_id: subscription_id.clone(),
@@ -32,9 +31,11 @@ impl Client {
             .streaming_fetch(Request::new(request_stream))
             .await?
             .into_inner();
+        log::debug!("start streaming fetch");
         request_sender
             .send(request)
             .map_err(common::Error::StreamingFetchInitError)?;
+        log::debug!("finish init request");
 
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(Payload, Responder)>();
 
