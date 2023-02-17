@@ -71,6 +71,14 @@ impl FlushSettings {
     pub fn builder() -> FlushSettingsBuilder {
         default()
     }
+
+    pub fn sync() -> Self {
+        Self {
+            len: 0,
+            size: 0,
+            deadline: None,
+        }
+    }
 }
 
 #[derive(Default)]

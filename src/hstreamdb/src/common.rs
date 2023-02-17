@@ -9,9 +9,11 @@ use tonic::transport;
 
 use crate::producer;
 
+pub type SubscriptionId = String;
+
 #[derive(Debug)]
 pub struct Subscription {
-    pub subscription_id: String,
+    pub subscription_id: SubscriptionId,
     pub stream_name: String,
     pub ack_timeout_seconds: i32,
     pub max_unacked_records: i32,

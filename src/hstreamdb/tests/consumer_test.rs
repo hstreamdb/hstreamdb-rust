@@ -6,7 +6,6 @@ use hstreamdb::producer::FlushSettings;
 use hstreamdb::{ChannelProviderSettings, Subscription};
 use hstreamdb_pb::{SpecialOffset, Stream};
 use hstreamdb_test_utils::rand_alphanumeric;
-use tokio_stream::StreamExt;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_consumer() {

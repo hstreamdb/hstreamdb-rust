@@ -16,5 +16,6 @@ pub use channel_provider::ChannelProviderSettings;
 pub use client::Client;
 pub use common::{
     CompressionType, Consumer, Error, ListValue, Payload, Record, RecordId, Result, ShardId,
-    SpecialOffset, Stream, StreamShardOffset, Struct, Subscription, Timestamp,
+    SpecialOffset, Stream, StreamShardOffset, Struct, Subscription, SubscriptionId, Timestamp,
 };
+pub use consumer::ConsumerStream;
