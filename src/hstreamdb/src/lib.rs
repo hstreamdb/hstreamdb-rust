@@ -1,6 +1,3 @@
-#![feature(default_free_fn)]
-#![feature(map_first_last)]
-
 pub mod appender;
 mod channel_provider;
 pub mod client;
