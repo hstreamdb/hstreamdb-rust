@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::default::default;
 use std::iter::FromIterator;
 
 use hstreamdb_pb::h_stream_api_client::HStreamApiClient;
@@ -80,7 +79,7 @@ pub struct ChannelProviderSettingsBuilder(ChannelProviderSettings);
 
 impl ChannelProviderSettings {
     pub fn builder() -> ChannelProviderSettingsBuilder {
-        ChannelProviderSettingsBuilder(default())
+        ChannelProviderSettingsBuilder(ChannelProviderSettings::default())
     }
 }
 
